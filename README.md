@@ -1,5 +1,7 @@
 # A-LOAM_BoW3D_CSF_BALM_union
 ## 在A-LOAM的基础上添加BoW3D CSF BALM功能模块
+## BoW3D模块
+所有源代码添加了中文注释
 ### LinK3D效果展示
 https://github.com/Wayne-sketch/A-LOAM_BoW3D_CSF_BALM_union/assets/77597175/6f79f697-59f5-4f65-83a4-116c476e4119
 
