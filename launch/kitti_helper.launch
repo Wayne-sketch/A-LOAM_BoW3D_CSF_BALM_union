@@ -1,0 +1,16 @@
+<launch>
+    
+    <!-- 要启动的节点 -->
+    <node name="kittiHelper" pkg="aloam_velodyne" type="kittiHelper" output="screen"> 
+        <!-- 数据的路径 -->
+        <param name="dataset_folder" type="string" value="/home/wb/A-LOAM-NOTED/catkin_ws/wb/kitti_data/" />
+        <!-- 数据的sequence -->
+        <param name="sequence_number" type="string" value="00" />
+        <!-- 是否保存bag文件 -->
+        <param name="to_bag" type="bool" value="true" />
+        <!-- bag的输出路径 -->
+        <param name="output_bag_file" type="string" value="/home/wb/A-LOAM-NOTED/catkin_ws/kitti_test.bag" /> <!-- replace with your output folder -->
+        <param name="publish_delay" type="int" value="1" />
+    </node>
+    
+</launch>
