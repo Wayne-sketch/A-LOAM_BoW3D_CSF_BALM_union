@@ -13,16 +13,16 @@ bool ICPCeres::operator() (
 {
     T p[3];
     T point[3];
-    point[0]=T(_xyz.x);
-    point[1]=T(_xyz.y);
-    point[2]=T(_xyz.z);
+    point[0]=T(_xyz.x());
+    point[1]=T(_xyz.y());
+    point[2]=T(_xyz.z());
     //算第二帧lidar坐标系下的点在第一帧lidar坐标系下的表示
     AngleAxisRotatePoint(camera, point, p);//计算RP
     p[0] += camera[3]; p[1] += camera[4]; p[2] += camera[5];//相机坐标2
     //计算残差
-    residual[0] = T(_uvw.x)-p[0];
-    residual[1] = T(_uvw.y)-p[1];
-    residual[2] = T(_uvw.z)-p[2];
+    residual[0] = T(_uvw.x())-p[0];
+    residual[1] = T(_uvw.y())-p[1];
+    residual[2] = T(_uvw.z())-p[2];
     return true;
 }
 
@@ -43,8 +43,8 @@ ceres::CostFunction* ICPCeres::Create(const Vector3d uvw,const Vector3d xyz) {
  * @param[out] t 
  * @return int 1:成功 -1:失败
  */
-int pose_estimation_3d3d(const std::shared_ptr<Frame> &currentFrame, const std::shared_ptr<Frame> &matchedFrame, vector<pair<int, int>> &vMatchedIndex,
-Eigen::Matrix3d &R, Eigen::Vector3d &t, const std::shared_ptr<LinK3D_Extractor> &pLinK3dExtractor)
+int pose_estimation_3d3d(Frame* currentFrame, Frame* matchedFrame, vector<pair<int, int>> &vMatchedIndex,
+Eigen::Matrix3d &R, Eigen::Vector3d &t, LinK3D_Extractor* pLinK3dExtractor)
 {
     // 如果匹配的索引数量小于等于30，返回失败
     if(vMatchedIndex.size() <= 30)

@@ -369,8 +369,9 @@ int main(int argc, char **argv)
     //LinK3D 聚类关键点发布
     ros::Publisher pubLaserCloud_LinK3D = nh.advertise<sensor_msgs::PointCloud2>("/odomLink3d_cloud", 100);
     //保存上一帧的 link3d Frame用于帧间匹配
-    std::shared_ptr<Frame> pPreviousFrame = nullptr;
-
+    Frame* pPreviousFrame = nullptr;
+    //存当前点云中的聚类后的关键点
+    pcl::PointCloud<pcl::PointXYZI>::Ptr AggregationKeypoints_LinK3D(new pcl::PointCloud<pcl::PointXYZI>);
     // //link3d
     // ros::Publisher pubLaserCloudLink3d_odom = nh.advertise<sensor_msgs::PointCloud2>("/odomLink3d_cloud", 100);
 
@@ -450,25 +451,27 @@ int main(int argc, char **argv)
             pcl::fromROSMsg(*fullPointsBuf.front(), *laserCloudFullRes);
             //link3d 把当前帧点云单独存一个用作link3d处理
             pcl::fromROSMsg(*fullPointsBuf.front(), *plaserCloudIn_LinK3D);
+            //测试
+            cout << plaserCloudIn_LinK3D->points[0].x;
             fullPointsBuf.pop();
 
             // //link3d
             // laserCloudLink3d->clear();
             // pcl::fromROSMsg(*odom_link3dPointsBuf.front(), *laserCloudLink3d);
             // odom_link3dPointsBuf.pop();
-            // mBuf.unlock();
 
+            //这个锁很关键
+            mBuf.unlock();
             TicToc t_whole;
-            // initializing，第一帧，只创建KDtree
+            // initializing，第一帧，这个条件语句后面会把当前帧点云存到上一帧点云，并创建KDtree
             if (!systemInited)
             {
                 // link3d 去除近距离点云
                 removeClosedPointCloud(*plaserCloudIn_LinK3D, *plaserCloudIn_LinK3D, 0.1);
                 // link3d 提取器
-                std::shared_ptr<BoW3D::LinK3D_Extractor> pLinK3dExtractor(new BoW3D::LinK3D_Extractor(nScans, scanPeriod_LinK3D, minimumRange, distanceTh, matchTh)); 
-                //第一帧直接赋值给pPreviousFrame，这里BoW3D::LinK3D_Extractor对象所有权交给了shared_ptr，离开当前作用域shared_ptr中的BoW3D::LinK3D_Extractor对象依然有效
-                pPreviousFrame = std::shared_ptr<Frame>(new Frame(pLinK3dExtractor, plaserCloudIn_LinK3D));
-
+                BoW3D::LinK3D_Extractor* pLinK3dExtractor(new BoW3D::LinK3D_Extractor(nScans, scanPeriod_LinK3D, minimumRange, distanceTh, matchTh)); 
+                //第一帧直接赋值给pPreviousFrame
+                pPreviousFrame = new Frame(pLinK3dExtractor, plaserCloudIn_LinK3D);
                 systemInited = true;
                 std::cout << "Initialization finished \n";
             }
@@ -488,30 +491,34 @@ int main(int argc, char **argv)
                 // LinK3D
                 removeClosedPointCloud(*plaserCloudIn_LinK3D, *plaserCloudIn_LinK3D, 0.1);
                 //在这里植入LinK3D，把接收到的点云数据用LinK3D提取边缘点和描述子，发布关键点数据，打印输出描述子
-                //LinK3D提取器 使用智能指针防止内存泄漏
-                std::shared_ptr<BoW3D::LinK3D_Extractor> pLinK3dExtractor(new BoW3D::LinK3D_Extractor(nScans, scanPeriod_LinK3D, minimumRange, distanceTh, matchTh)); 
+                //LinK3D提取器
+                BoW3D::LinK3D_Extractor* pLinK3dExtractor(new BoW3D::LinK3D_Extractor(nScans, scanPeriod_LinK3D, minimumRange, distanceTh, matchTh)); 
                 //创建点云帧,该函数中利用LinK3D仿函数执行了提取边缘点，聚类，计算描述子的操作
-                //使用智能指针防止内存泄漏
-                std::shared_ptr<Frame> pCurrentFrame_LinK3D(new Frame(pLinK3dExtractor, plaserCloudIn_LinK3D));
+                Frame* pCurrentFrame_LinK3D(new Frame(pLinK3dExtractor, plaserCloudIn_LinK3D));
                 //此时pCurrentFrame_LinK3D这个类指针中包含了边缘点，聚类，描述子的信息
+        //测试 输出关键点数量和第一个关键点信息 正常输出 
+        // cout << "------------------------" << endl << "关键点数量:" << pCurrentFrame_LinK3D->mvAggregationKeypoints.size();
+        // cout << "第一个关键点信息x坐标" << pCurrentFrame_LinK3D->mvAggregationKeypoints[0].x;
                 //存当前点云中的聚类后的关键点
-                pcl::PointCloud<pcl::PointXYZI>::Ptr AggregationKeypoints_LinK3D(new pcl::PointCloud<pcl::PointXYZI>);
                 AggregationKeypoints_LinK3D->points.insert(AggregationKeypoints_LinK3D->points.end(), pCurrentFrame_LinK3D->mvAggregationKeypoints.begin(), pCurrentFrame_LinK3D->mvAggregationKeypoints.end());
-                
+        //测试 输出点云中信息 也能正常输出
+        // cout << "------------------------" << endl << "关键点数量:" << AggregationKeypoints_LinK3D->points.size();
+        // cout << "第一个关键点信息x坐标" << AggregationKeypoints_LinK3D->points[0].x;
                 //todo 2.对描述子进行匹配 3.使用匹配对进行帧间icp配准 pPreviousFrame是上一个link3d Frame帧 pCurrentFrame_LinK3D是当前link3d Frame帧
                 // 获取上一帧和当前帧之间的匹配索引
                  vector<pair<int, int>> vMatchedIndex;  
                 pLinK3dExtractor->match(pCurrentFrame_LinK3D->mvAggregationKeypoints, pPreviousFrame->mvAggregationKeypoints, pCurrentFrame_LinK3D->mDescriptors, pPreviousFrame->mDescriptors, vMatchedIndex);
                 //todo 这里仿照BoW3D函数写一个帧间ICP匹配函数求出R,t
                 int returnValue = 0;
-
                 // 进行帧间ICP匹配 求当前帧到上一帧的位姿变换
                 // 这里求的R t是当前帧点云到上一帧点云的位姿变换
                 returnValue = pose_estimation_3d3d(pCurrentFrame_LinK3D, pPreviousFrame, vMatchedIndex, RelativeR, Relativet, pLinK3dExtractor);
                 //至此获得了当前帧点云到上一帧点云的位姿变换
 
-                //当前帧Frame用完以后，赋值给上一帧Frame
-                pPreviousFrame = std::move(pCurrentFrame_LinK3D);
+                //当前帧Frame用完以后，赋值给上一帧Frame,赋值前先把要丢掉的帧内存释放
+                //todo 这里Frame里有成员指针，析构函数里delete成员指针
+                delete pPreviousFrame;
+                pPreviousFrame = pCurrentFrame_LinK3D;
                 //LinK3D 植入结束
 
                 // for (size_t opti_counter = 0; opti_counter < 2; ++opti_counter)
@@ -580,7 +587,6 @@ int main(int argc, char **argv)
                 //         // 帧间的距离不能过大，因为是匀速运动模型
                 //         if (pointSearchSqDis[0] < DISTANCE_SQ_THRESHOLD)
                 //         {
-                //             // 目标点对应的上一帧最近距离点的索引
                 //             closestPointInd = pointSearchInd[0];
 
                 //             // 整数部分：线束id，线束信息藏在intensity的整数部分
@@ -848,11 +854,11 @@ int main(int argc, char **argv)
                 // q_w_curr = q_w_curr * q_last_curr;
 
                 //todo 这里改为用link3d关键点优化的帧间位姿赋值
-                //帧间匹配的位姿转换成四元数
+                // //帧间匹配的位姿转换成四元数
                 q_last_curr = Eigen::Quaterniond(RelativeR);
                 t_last_curr = Relativet;
-                //更新当前帧到世界系变换
-                t_w_curr = t_w_curr + q_w_curr * q_last_curr;
+                // //更新当前帧到世界系变换
+                t_w_curr = t_w_curr + q_w_curr * t_last_curr;
                 q_w_curr = q_w_curr * q_last_curr;
             }
 
@@ -909,6 +915,7 @@ int main(int argc, char **argv)
             
             // 位姿估计完毕之后，当前边线点和平面点就变成了上一帧的边线点和平面点，把索引和数量都转移过去
             // curr 存一下当前帧的指针
+            //利用一个临时点云指针把当前从配准端接收到的次边缘点和次平面点分别与上一帧边缘点和平面点指针互换
             pcl::PointCloud<PointType>::Ptr laserCloudTemp = cornerPointsLessSharp;
             // curr --> last 当前帧指向上一帧
             cornerPointsLessSharp = laserCloudCornerLast;
@@ -936,6 +943,7 @@ int main(int argc, char **argv)
             if (frameCount % skipFrameNum == 0)// 0除以1，当然是商0，且余数也是0
             {
                 frameCount = 0;
+                //此时当前帧边缘点 平面点已经存入last指针里了
                 // 原封不动发布当前角点
                 sensor_msgs::PointCloud2 laserCloudCornerLast2;
                 pcl::toROSMsg(*laserCloudCornerLast, laserCloudCornerLast2);
@@ -972,6 +980,8 @@ int main(int argc, char **argv)
                 pubLaserCloud_LinK3D.publish(laserCloud_LinK3D);// 发布当前帧点云
                 //用完清空 释放原来的对象，指向新的对象
                 plaserCloudIn_LinK3D.reset(new pcl::PointCloud<pcl::PointXYZ>);
+                //AggregationKeypoints_LinK3D需要手动清空
+                AggregationKeypoints_LinK3D.reset(new pcl::PointCloud<pcl::PointXYZI>);
             }
             printf("publication time %f ms \n", t_pub.toc());
             printf("whole laserOdometry time %f ms \n \n", t_whole.toc());

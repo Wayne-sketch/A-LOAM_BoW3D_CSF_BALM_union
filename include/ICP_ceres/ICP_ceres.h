@@ -191,9 +191,9 @@ struct ICPCeres
 
 //两帧3D点ICP匹配
 int pose_estimation_3d3d(
-        const std::shared_ptr<Frame> &currentFrame, const std::shared_ptr<Frame> &matchedFrame,
+        Frame* currentFrame, Frame* matchedFrame,
         vector<pair<int, int>> &vMatchedIndex, Eigen::Matrix3d &R, Eigen::Vector3d &t,
-        const std::shared_ptr<LinK3D_Extractor> &pLinK3dExtractor
+        LinK3D_Extractor* pLinK3dExtractor
 );
 
 #endif // ICP_ceres.h
