@@ -47,11 +47,11 @@ catkin_package(
 )
 
 
-add_executable(ascanRegistration src/scanRegistration.cpp src/Frame.cpp src/LinK3D_Extractor.cpp src/BoW3D.cpp)
+add_executable(ascanRegistration src/scanRegistration.cpp)
 target_link_libraries(ascanRegistration ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ${OpenCV_LIBS} ${G2O_LIBS} ${Sophus_LIBRARIES})
 
-add_executable(alaserOdometry src/laserOdometry.cpp)
-target_link_libraries(alaserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES})
+add_executable(alaserOdometry src/laserOdometry.cpp src/Frame.cpp src/LinK3D_Extractor.cpp src/ICP_ceres.cpp)
+target_link_libraries(alaserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ${OpenCV_LIBS} ${G2O_LIBS} ${Sophus_LIBRARIES})
 
 add_executable(alaserMapping src/laserMapping.cpp)
 target_link_libraries(alaserMapping ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES})

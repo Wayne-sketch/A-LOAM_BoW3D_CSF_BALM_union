@@ -158,6 +158,51 @@ std::queue<sensor_msgs::PointCloud2ConstPtr> fullPointsBuf;
 
 std::mutex mBuf;
 
+
+/**
+ * @brief 除去距离lidar过近的点
+ * 
+ * @tparam PointT 
+ * @param[in] cloud_in 输入点云
+ * @param[out] cloud_out 输出点云
+ * @param[in] thres 距离阈值
+ */
+template <typename PointT>
+void removeClosedPointCloud(const pcl::PointCloud<PointT> &cloud_in,
+                              pcl::PointCloud<PointT> &cloud_out, float thres)
+{
+    // 入参和出参的地址一样
+    if (&cloud_in != &cloud_out)
+    {
+        cloud_out.header = cloud_in.header;
+        cloud_out.points.resize(cloud_in.points.size());
+    }
+
+    size_t j = 0;
+ 
+    for (size_t i = 0; i < cloud_in.points.size(); ++i)
+    {
+        // 如果 x² + y² +　z² < th ，则跳过
+        if (cloud_in.points[i].x * cloud_in.points[i].x + cloud_in.points[i].y * cloud_in.points[i].y + cloud_in.points[i].z * cloud_in.points[i].z < thres * thres)
+            continue;
+        cloud_out.points[j] = cloud_in.points[i];
+        j++;
+    }
+
+    // 如果有点被去除了
+    if (j != cloud_in.points.size())
+    {
+        // 不在声明额外的变量，节约空间
+        cloud_out.points.resize(j);
+    }
+    // ROS中的点云高度为点云的线数，点云的宽度为该线数对应的点云个数
+    // 经过remove操作之后没有办法保证每个每根线上都有点云，所以操作完后的点云为无序的点云，高度为1，宽度为所有点云的个数
+    cloud_out.height = 1;
+    // 有效点云个数
+    cloud_out.width = static_cast<uint32_t>(j);
+    cloud_out.is_dense = true;
+}
+
 /*
 计算当前位置到起始位置的坐标变换，将当前的点转换到起始点位置，
 即将100毫秒内的一帧的点云，统一到一个时间点的坐标系上
@@ -360,7 +405,7 @@ int main(int argc, char **argv)
 
         // 确保订阅的五个消息队列(五种点云)都有，有一个队列为空都不行
         if (!cornerSharpBuf.empty() && !cornerLessSharpBuf.empty() &&
-            !surfFlatBuf.empty() && !surfLessFlatBuf.empty() && !fullPointsBuf.empty() && !odom_link3dPointsBuf.empty())
+            !surfFlatBuf.empty() && !surfLessFlatBuf.empty() && !fullPointsBuf.empty())
         {
             // 取出每一个队列最早的时间戳
             timeCornerPointsSharp = cornerSharpBuf.front()->header.stamp.toSec();
@@ -420,7 +465,7 @@ int main(int argc, char **argv)
                 // link3d 去除近距离点云
                 removeClosedPointCloud(*plaserCloudIn_LinK3D, *plaserCloudIn_LinK3D, 0.1);
                 // link3d 提取器
-                std::unique_ptr<BoW3D::LinK3D_Extractor> pLinK3dExtractor(new BoW3D::LinK3D_Extractor(nScans, scanPeriod_LinK3D, minimumRange, distanceTh, matchTh)); 
+                std::shared_ptr<BoW3D::LinK3D_Extractor> pLinK3dExtractor(new BoW3D::LinK3D_Extractor(nScans, scanPeriod_LinK3D, minimumRange, distanceTh, matchTh)); 
                 //第一帧直接赋值给pPreviousFrame，这里BoW3D::LinK3D_Extractor对象所有权交给了shared_ptr，离开当前作用域shared_ptr中的BoW3D::LinK3D_Extractor对象依然有效
                 pPreviousFrame = std::shared_ptr<Frame>(new Frame(pLinK3dExtractor, plaserCloudIn_LinK3D));
 
@@ -444,7 +489,7 @@ int main(int argc, char **argv)
                 removeClosedPointCloud(*plaserCloudIn_LinK3D, *plaserCloudIn_LinK3D, 0.1);
                 //在这里植入LinK3D，把接收到的点云数据用LinK3D提取边缘点和描述子，发布关键点数据，打印输出描述子
                 //LinK3D提取器 使用智能指针防止内存泄漏
-                std::unique_ptr<BoW3D::LinK3D_Extractor> pLinK3dExtractor(new BoW3D::LinK3D_Extractor(nScans, scanPeriod_LinK3D, minimumRange, distanceTh, matchTh)); 
+                std::shared_ptr<BoW3D::LinK3D_Extractor> pLinK3dExtractor(new BoW3D::LinK3D_Extractor(nScans, scanPeriod_LinK3D, minimumRange, distanceTh, matchTh)); 
                 //创建点云帧,该函数中利用LinK3D仿函数执行了提取边缘点，聚类，计算描述子的操作
                 //使用智能指针防止内存泄漏
                 std::shared_ptr<Frame> pCurrentFrame_LinK3D(new Frame(pLinK3dExtractor, plaserCloudIn_LinK3D));
@@ -456,13 +501,13 @@ int main(int argc, char **argv)
                 //todo 2.对描述子进行匹配 3.使用匹配对进行帧间icp配准 pPreviousFrame是上一个link3d Frame帧 pCurrentFrame_LinK3D是当前link3d Frame帧
                 // 获取上一帧和当前帧之间的匹配索引
                  vector<pair<int, int>> vMatchedIndex;  
-                mpLinK3D_Extractor->match(pCurrentFrame_LinK3D->mvAggregationKeypoints, pPreviousFrame->mvAggregationKeypoints, pCurrentFrame_LinK3D->mDescriptors, pPreviousFrame->mDescriptors, vMatchedIndex);
+                pLinK3dExtractor->match(pCurrentFrame_LinK3D->mvAggregationKeypoints, pPreviousFrame->mvAggregationKeypoints, pCurrentFrame_LinK3D->mDescriptors, pPreviousFrame->mDescriptors, vMatchedIndex);
                 //todo 这里仿照BoW3D函数写一个帧间ICP匹配函数求出R,t
                 int returnValue = 0;
 
                 // 进行帧间ICP匹配 求当前帧到上一帧的位姿变换
                 // 这里求的R t是当前帧点云到上一帧点云的位姿变换
-                returnValue = pose_estimation_3d3d(pCurrentFrame_LinK3D, pPreviousFrame, vMatchedIndex, RelativeR, Relativet);
+                returnValue = pose_estimation_3d3d(pCurrentFrame_LinK3D, pPreviousFrame, vMatchedIndex, RelativeR, Relativet, pLinK3dExtractor);
                 //至此获得了当前帧点云到上一帧点云的位姿变换
 
                 //当前帧Frame用完以后，赋值给上一帧Frame

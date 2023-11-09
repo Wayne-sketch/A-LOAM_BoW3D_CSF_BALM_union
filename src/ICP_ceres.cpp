@@ -1,10 +1,9 @@
 #include "ICP_ceres/ICP_ceres.h"
 using namespace std;
-using namespace cv;
 using namespace Eigen;
 
 //ceres自动求导的结构体
-ICPCeres::ICPCeres ( Point3f uvw,Point3f xyz ) : _uvw(uvw),_xyz(xyz) {}
+ICPCeres::ICPCeres ( Vector3d uvw,Vector3d xyz ) : _uvw(uvw),_xyz(xyz) {}
 // 残差的计算 重载括号运算符
 
 template <typename T>
@@ -27,7 +26,7 @@ bool ICPCeres::operator() (
     return true;
 }
 
-ceres::CostFunction* ICPCeres::Create(const Point3f uvw,const Point3f xyz) {
+ceres::CostFunction* ICPCeres::Create(const Vector3d uvw,const Vector3d xyz) {
     //残差3维，两帧lidar相对位姿6维
     return (new ceres::AutoDiffCostFunction<ICPCeres, 3, 6>(
             new ICPCeres(uvw,xyz)));
@@ -44,7 +43,8 @@ ceres::CostFunction* ICPCeres::Create(const Point3f uvw,const Point3f xyz) {
  * @param[out] t 
  * @return int 1:成功 -1:失败
  */
-int pose_estimation_3d3d(const std::shared_ptr<Frame> &currentFrame, const std::shared_ptr<Frame> &matchedFrame, vector<pair<int, int>> &vMatchedIndex, Eigen::Matrix3d &R, Eigen::Vector3d &t)
+int pose_estimation_3d3d(const std::shared_ptr<Frame> &currentFrame, const std::shared_ptr<Frame> &matchedFrame, vector<pair<int, int>> &vMatchedIndex,
+Eigen::Matrix3d &R, Eigen::Vector3d &t, const std::shared_ptr<LinK3D_Extractor> &pLinK3dExtractor)
 {
     // 如果匹配的索引数量小于等于30，返回失败
     if(vMatchedIndex.size() <= 30)
@@ -55,12 +55,12 @@ int pose_estimation_3d3d(const std::shared_ptr<Frame> &currentFrame, const std::
     // 对当前帧和匹配帧的边缘关键点进行低曲率过滤
     ScanEdgePoints currentFiltered;
     ScanEdgePoints matchedFiltered;
-    mpLinK3D_Extractor->filterLowCurv(currentFrame->mClusterEdgeKeypoints, currentFiltered);
-    mpLinK3D_Extractor->filterLowCurv(matchedFrame->mClusterEdgeKeypoints, matchedFiltered);
+    pLinK3dExtractor->filterLowCurv(currentFrame->mClusterEdgeKeypoints, currentFiltered);
+    pLinK3dExtractor->filterLowCurv(matchedFrame->mClusterEdgeKeypoints, matchedFiltered);
 
     // 获取匹配的边缘关键点对
     vector<std::pair<PointXYZSCA, PointXYZSCA>> matchedEdgePt;
-    mpLinK3D_Extractor->findEdgeKeypointMatch(currentFiltered, matchedFiltered, vMatchedIndex, matchedEdgePt);
+    pLinK3dExtractor->findEdgeKeypointMatch(currentFiltered, matchedFiltered, vMatchedIndex, matchedEdgePt);
     
     // 构建源点云和目标点云
     pcl::PointCloud<pcl::PointXYZ>::Ptr source(new pcl::PointCloud<pcl::PointXYZ>());

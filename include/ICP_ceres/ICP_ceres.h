@@ -10,22 +10,18 @@
 #include <Eigen/Geometry>
 #include <Eigen/SVD>
 #include <chrono>
-#include <g2o/core/base_vertex.h>
-#include <g2o/core/base_unary_edge.h>
-#include <g2o/core/block_solver.h>
-#include <g2o/core/optimization_algorithm_gauss_newton.h>
-#include <g2o/solvers/eigen/linear_solver_eigen.h>
-#include <g2o/types/sba/types_six_dof_expmap.h>
-#include <opencv2/core/core.hpp>
-#include <opencv2/features2d/features2d.hpp>
-#include <opencv2/highgui/highgui.hpp>
-#include <opencv2/calib3d/calib3d.hpp>
-#include <opencv2/core/eigen.hpp>
+#include <pcl/registration/ia_ransac.h>
+#include <pcl/registration/icp.h>
+#include <pcl/registration/sample_consensus_prerejective.h> 
+#include <pcl/registration/correspondence_estimation.h>
+#include <pcl/registration/correspondence_rejection_sample_consensus.h>
 //帧间位姿匹配函数要用
 #include "BoW3D/LinK3D_Extractor.h"
-#include "Frame.h"
+#include "BoW3D/Frame.h"
 // math functions needed for rotation conversion. 
  
+using namespace BoW3D;
+
 // dot and cross production 
 
 //向量点乘 
@@ -181,23 +177,23 @@ inline void AngleAxisRotatePoint(const T angle_axis[3], const T pt[3], T result[
 //ceres自动求导结构体声明
 struct ICPCeres
 {
-    ICPCeres ( Point3f uvw,Point3f xyz );
+    ICPCeres( Vector3d uvw,Vector3d xyz );
     // 残差的计算 重载括号运算符
     template <typename T>
     bool operator() (const T* const camera,     // 模型参数，有6维 待优化的
             T* residual ) const;                // 残差
-    static ceres::CostFunction* Create(const Point3f uvw,const Point3f xyz);
+    static ceres::CostFunction* Create(const Vector3d uvw,const Vector3d xyz);
     //第一帧lidar坐标系下的坐标
-    const Point3f _uvw;
+    const Vector3d _uvw;
     //第二帧lidar坐标系下的坐标
-    const Point3f _xyz;
+    const Vector3d _xyz;
 };
 
 //两帧3D点ICP匹配
-void pose_estimation_3d3d (
-        const vector<Point3f>& pts1,
-        const vector<Point3f>& pts2,
-        Mat& R, Mat& t
+int pose_estimation_3d3d(
+        const std::shared_ptr<Frame> &currentFrame, const std::shared_ptr<Frame> &matchedFrame,
+        vector<pair<int, int>> &vMatchedIndex, Eigen::Matrix3d &R, Eigen::Vector3d &t,
+        const std::shared_ptr<LinK3D_Extractor> &pLinK3dExtractor
 );
 
 #endif // ICP_ceres.h
