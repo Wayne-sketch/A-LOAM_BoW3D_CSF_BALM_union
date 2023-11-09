@@ -1,6 +1,5 @@
 #include "BoW3D/LinK3D_Extractor.h"
 
-
 namespace BoW3D
 {
     //构造函数 给所有私有成员变量赋值
@@ -902,7 +901,7 @@ namespace BoW3D
                     if(iterScore->second > highestScore){
                         highestScore = iterScore->second;
                         highestScoreIndex = indexI;
-                    }                
+                    }
                     ++iter1;
                     --entries;
                 }
@@ -1007,7 +1006,7 @@ namespace BoW3D
         {
             //从 vMatched 中获取当前匹配对的索引 matchedInd，该索引对应的是 filtered1 和 filtered2 中的边缘点云簇。
             pair<int, int> matchedInd = vMatched[i];
-            // 获取当前匹配对在 filtered1 和 filtered2 中的点数。 
+            // 获取当前匹配对在 filtered1 和 filtered2 中的点数。
             int numPt1 = filtered1[matchedInd.first].size();
             int numPt2 = filtered2[matchedInd.second].size();
             //创建两个映射（mScanID_Index1 和 mScanID_Index2）用于存储扫描线号与点云索引的关系

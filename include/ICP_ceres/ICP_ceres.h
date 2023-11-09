@@ -1,31 +1,48 @@
-#ifndef ROTATION_H
-#define ROTATION_H
+#ifndef ICP_CERES_H
+#define ICP_CERES_H
  
 #include <algorithm>
 #include <cmath>
 #include <limits>
- 
-//
+#include <iostream>
+#include <ceres/ceres.h>
+#include <Eigen/Core>
+#include <Eigen/Geometry>
+#include <Eigen/SVD>
+#include <chrono>
+#include <g2o/core/base_vertex.h>
+#include <g2o/core/base_unary_edge.h>
+#include <g2o/core/block_solver.h>
+#include <g2o/core/optimization_algorithm_gauss_newton.h>
+#include <g2o/solvers/eigen/linear_solver_eigen.h>
+#include <g2o/types/sba/types_six_dof_expmap.h>
+#include <opencv2/core/core.hpp>
+#include <opencv2/features2d/features2d.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/calib3d/calib3d.hpp>
+#include <opencv2/core/eigen.hpp>
+//帧间位姿匹配函数要用
+#include "BoW3D/LinK3D_Extractor.h"
+#include "Frame.h"
 // math functions needed for rotation conversion. 
  
 // dot and cross production 
- 
+
+//向量点乘 
 template<typename T> 
 inline T DotProduct(const T x[3], const T y[3]) {
   return (x[0] * y[0] + x[1] * y[1] + x[2] * y[2]);
 }
  
+//向量叉乘
 template<typename T>
 inline void CrossProduct(const T x[3], const T y[3], T result[3]){
   result[0] = x[1] * y[2] - x[2] * y[1];
   result[1] = x[2] * y[0] - x[0] * y[2];
   result[2] = x[0] * y[1] - x[1] * y[0];
 }
- 
- 
-//
- 
- 
+
+//旋转向量转四元数
 // Converts from a angle anxis to quaternion : 
 template<typename T>
 inline void AngleAxisToQuaternion(const T* angle_axis, T* quaternion){
@@ -33,7 +50,6 @@ inline void AngleAxisToQuaternion(const T* angle_axis, T* quaternion){
   const T& a1 = angle_axis[1];
   const T& a2 = angle_axis[2];
   const T theta_squared = a0 * a0 + a1 * a1 + a2 * a2;
-  
   
   if(theta_squared > T(std::numeric_limits<double>::epsilon()) ){
     const T theta = sqrt(theta_squared);
@@ -52,8 +68,8 @@ inline void AngleAxisToQuaternion(const T* angle_axis, T* quaternion){
     quaternion[3] = a2 * k;
   }
 }
- 
- 
+
+//四元数转旋转向量
 template<typename T>
 inline void QuaternionToAngleAxis(const T* quaternion, T* angle_axis){
   const T& q1 = quaternion[1];
@@ -93,7 +109,7 @@ inline void QuaternionToAngleAxis(const T* quaternion, T* angle_axis){
   
 }
  
- 
+//利用旋转向量旋转点
 template<typename T>
 inline void AngleAxisRotatePoint(const T angle_axis[3], const T pt[3], T result[3]) {
   const T theta2 = DotProduct(angle_axis, angle_axis);
@@ -162,4 +178,26 @@ inline void AngleAxisRotatePoint(const T angle_axis[3], const T pt[3], T result[
   }
 }
  
-#endif // rotation.h
+//ceres自动求导结构体声明
+struct ICPCeres
+{
+    ICPCeres ( Point3f uvw,Point3f xyz );
+    // 残差的计算 重载括号运算符
+    template <typename T>
+    bool operator() (const T* const camera,     // 模型参数，有6维 待优化的
+            T* residual ) const;                // 残差
+    static ceres::CostFunction* Create(const Point3f uvw,const Point3f xyz);
+    //第一帧lidar坐标系下的坐标
+    const Point3f _uvw;
+    //第二帧lidar坐标系下的坐标
+    const Point3f _xyz;
+};
+
+//两帧3D点ICP匹配
+void pose_estimation_3d3d (
+        const vector<Point3f>& pts1,
+        const vector<Point3f>& pts2,
+        Mat& R, Mat& t
+);
+
+#endif // ICP_ceres.h

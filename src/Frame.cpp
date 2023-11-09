@@ -1,8 +1,8 @@
 /*
  * @Author: huge zhuhu00@foxmail.com
  * @Date: 2023-11-01 15:38:26
- * @LastEditors: huge zhuhu00@foxmail.com
- * @LastEditTime: 2023-11-01 15:51:14
+ * @LastEditors: ctx cuitongxin201024@163.com
+ * @LastEditTime: 2023-11-08 15:07:24
  * @FilePath: /a-loam/src/A-LOAM/src/Frame.cpp
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -19,7 +19,5 @@ namespace BoW3D
         mnId = nNextId++; 
 
         (*mpLink3dExtractor)(pLaserCloudIn, mvAggregationKeypoints, mDescriptors, mClusterEdgeKeypoints);
-    }
-
-                
+    }             
 }

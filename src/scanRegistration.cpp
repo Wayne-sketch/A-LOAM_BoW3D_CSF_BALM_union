@@ -52,41 +52,41 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <tf/transform_datatypes.h>
 #include <tf/transform_broadcaster.h>
-//LinK3D
-#include <eigen3/Eigen/Dense>
-#include <pcl/filters/extract_indices.h>
-#include <sstream>
-#include <iomanip>
-#include "BoW3D/LinK3D_Extractor.h"
-#include "BoW3D/BoW3D.h"
-using namespace BoW3D;
+// //LinK3D
+// #include <eigen3/Eigen/Dense>
+// #include <pcl/filters/extract_indices.h>
+// #include <sstream>
+// #include <iomanip>
+// #include "BoW3D/LinK3D_Extractor.h"
+// #include "BoW3D/BoW3D.h"
+// using namespace BoW3D;
 
 using std::atan2;
 using std::cos;
 using std::sin;
 
-//Parameters of LinK3D
-//雷达扫描线数
-int nScans = 64; //Number of LiDAR scan lines
-//雷达扫描周期
-float scanPeriod_LinK3D = 0.1; 
-//最小点云距离范围，距离原点小于该阈值的点将被删除
-float minimumRange = 0.1;
-//判断区域内某点和聚类点均值距离，以及在x，y轴上的距离
-float distanceTh = 0.4;
-//描述子匹配所需的最低分数阈值 ，描述子匹配分数低于此分数的两个关键点不匹配
-int matchTh = 6;
+// //Parameters of LinK3D
+// //雷达扫描线数
+// int nScans = 64; //Number of LiDAR scan lines
+// //雷达扫描周期
+// float scanPeriod_LinK3D = 0.1; 
+// //最小点云距离范围，距离原点小于该阈值的点将被删除
+// float minimumRange = 0.1;
+// //判断区域内某点和聚类点均值距离，以及在x，y轴上的距离
+// float distanceTh = 0.4;
+// //描述子匹配所需的最低分数阈值 ，描述子匹配分数低于此分数的两个关键点不匹配
+// int matchTh = 6;
 
-//Parameters of BoW3D
-//比率阈值。
-float thr = 3.5;
-//频率阈值。
-int thf = 5;
-//每帧添加或检索的特征数量。
-int num_add_retrieve_features = 5;
+// //Parameters of BoW3D
+// //比率阈值。
+// float thr = 3.5;
+// //频率阈值。
+// int thf = 5;
+// //每帧添加或检索的特征数量。
+// int num_add_retrieve_features = 5;
 
-//LinK3D聚类关键点发布
-ros::Publisher pubLaserCloud_LinK3D;
+// //LinK3D 聚类关键点发布
+// ros::Publisher pubLaserCloud_LinK3D;
 
 
 
@@ -116,8 +116,17 @@ bool PUB_EACH_LINE = false;
 double MINIMUM_RANGE = 0.1;
 pcl::PointCloud<MyPointType> laserCloudIn_RS;// 80
 pcl::PointCloud<PointType> laserCloudIn_VD;// 16, 32, 64
-pcl::PointCloud<pcl::PointXYZ>::Ptr plaserCloudIn_LinK3D(new pcl::PointCloud<pcl::PointXYZ>); //LinK3D当前帧点云
+// pcl::PointCloud<pcl::PointXYZ>::Ptr plaserCloudIn_LinK3D(new pcl::PointCloud<pcl::PointXYZ>); //LinK3D 当前帧点云
 
+
+/**
+ * @brief 除去距离lidar过近的点
+ * 
+ * @tparam PointT 
+ * @param[in] cloud_in 输入点云
+ * @param[out] cloud_out 输出点云
+ * @param[in] thres 距离阈值
+ */
 template <typename PointT>
 void removeClosedPointCloud(const pcl::PointCloud<PointT> &cloud_in,
                               pcl::PointCloud<PointT> &cloud_out, float thres)
@@ -216,89 +225,90 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     {
         // pcl不能直接处理ros消息格式，将ros格式的点云数据转换为激光数据
         pcl::fromROSMsg(*laserCloudMsg, laserCloudIn_VD);
-        // LinK3D
-        pcl::fromROSMsg(*laserCloudMsg, *plaserCloudIn_LinK3D);
+        // // LinK3D
+        // pcl::fromROSMsg(*laserCloudMsg, *plaserCloudIn_LinK3D);
         //这个变量保存了下面去除nan点的序号
         std::vector<int> indices;
         // 去除点云中的nan点，即无返回的点
         pcl::removeNaNFromPointCloud(laserCloudIn_VD, laserCloudIn_VD, indices);
         // 去除距离小于阈值的点，不然会发生鬼影，引用传递
         removeClosedPointCloud(laserCloudIn_VD, laserCloudIn_VD, MINIMUM_RANGE);
-        // LinK3D
-        removeClosedPointCloud(*plaserCloudIn_LinK3D, *plaserCloudIn_LinK3D, MINIMUM_RANGE);
-        //在这里植入LinK3D，把接收到的点云数据用LinK3D提取边缘点和描述子，发布关键点数据，打印输出描述子
-        //LinK3D提取器
-        BoW3D::LinK3D_Extractor* pLinK3dExtractor = new BoW3D::LinK3D_Extractor(nScans, scanPeriod_LinK3D, minimumRange, distanceTh, matchTh); 
-        //BoW3D词袋
-        BoW3D::BoW3D* pBoW3D = new BoW3D::BoW3D(pLinK3dExtractor, thr, thf, num_add_retrieve_features);
-        //订阅点云消息的回调函数中已经读取点云数据到laserCloudInForLinK3D中
-        //创建点云帧,该函数中利用LinK3D仿函数执行了提取边缘点，聚类，计算描述子的操作
-        Frame* pCurrentFrame_LinK3D = new Frame(pLinK3dExtractor, plaserCloudIn_LinK3D); 
-        //此时pCurrentFrame_LinK3D这个类指针中包含了边缘点，聚类，描述子的信息
-        //存当前点云中的聚类后的关键点
-        pcl::PointCloud<pcl::PointXYZI>::Ptr AggregationKeypoints_LinK3D(new pcl::PointCloud<pcl::PointXYZI>);
-        //测试 输出关键点数量和第一个关键点信息 正常输出 
-        // cout << "------------------------" << endl << "关键点数量:" << pCurrentFrame_LinK3D->mvAggregationKeypoints.size();
-        // cout << "第一个关键点信息x坐标" << pCurrentFrame_LinK3D->mvAggregationKeypoints[0].x;
-        AggregationKeypoints_LinK3D->points.insert(AggregationKeypoints_LinK3D->points.end(), pCurrentFrame_LinK3D->mvAggregationKeypoints.begin(), pCurrentFrame_LinK3D->mvAggregationKeypoints.end());
-        //测试 输出点云中信息 也能正常输出
-        // cout << "------------------------" << endl << "关键点数量:" << AggregationKeypoints_LinK3D->points.size();
-        // cout << "第一个关键点信息x坐标" << AggregationKeypoints_LinK3D->points[0].x;
-        //Id从0开始算，前两帧更新BoW3D词袋
-        if(pCurrentFrame_LinK3D->mnId < 2)
-        {
-            pBoW3D->update(pCurrentFrame_LinK3D);  
-        }
-        else
-        {                
-            int loopFrameId = -1;
-            Eigen::Matrix3d loopRelR;
-            Eigen::Vector3d loopRelt;
-
-            clock_t start, end;
-            double time;       
-            start = clock();
-
-            //在3D词袋模型中检索与当前帧相似的帧
-            pBoW3D->retrieve(pCurrentFrame_LinK3D, loopFrameId, loopRelR, loopRelt); 
-
-            end = clock();
-            time = ((double) (end - start)) / CLOCKS_PER_SEC;
-            
-            //更新词袋
-            pBoW3D->update(pCurrentFrame_LinK3D);               
-
-            //输出检测结果
-            if(loopFrameId == -1)
-            {
-                cout << "-------------------------" << endl;
-                cout << "Detection Time: " << time << "s" << endl;
-                cout << "Frame" << pCurrentFrame_LinK3D->mnId << " Has No Loop..." << endl;
-            }
-            else
-            {
-                cout << "--------------------------------------" << endl;
-                cout << "Detection Time: " << time << "s" << endl;
-                cout << "Frame" << pCurrentFrame_LinK3D->mnId << " Has Loop Frame" << loopFrameId << endl;
-                
-                cout << "Loop Relative R: " << endl;
-                cout << loopRelR << endl;
-                                
-                cout << "Loop Relative t: " << endl;                
-                cout << "   " << loopRelt.x() << " " << loopRelt.y() << " " << loopRelt.z() << endl;
-            }
-        }
+        // // LinK3D
+        // removeClosedPointCloud(*plaserCloudIn_LinK3D, *plaserCloudIn_LinK3D, MINIMUM_RANGE);
+        // //在这里植入LinK3D，把接收到的点云数据用LinK3D提取边缘点和描述子，发布关键点数据，打印输出描述子
+        // //LinK3D提取器
+        // BoW3D::LinK3D_Extractor* pLinK3dExtractor = new BoW3D::LinK3D_Extractor(nScans, scanPeriod_LinK3D, minimumRange, distanceTh, matchTh); 
+        // //BoW3D词袋
+        // BoW3D::BoW3D* pBoW3D = new BoW3D::BoW3D(pLinK3dExtractor, thr, thf, num_add_retrieve_features);
+        // //订阅点云消息的回调函数中已经读取点云数据到laserCloudInForLinK3D中
+        // //创建点云帧,该函数中利用LinK3D仿函数执行了提取边缘点，聚类，计算描述子的操作
+        // Frame* pCurrentFrame_LinK3D = new Frame(pLinK3dExtractor, plaserCloudIn_LinK3D); 
+        // //此时pCurrentFrame_LinK3D这个类指针中包含了边缘点，聚类，描述子的信息
+        // //存当前点云中的聚类后的关键点
+        // pcl::PointCloud<pcl::PointXYZI>::Ptr AggregationKeypoints_LinK3D(new pcl::PointCloud<pcl::PointXYZI>);
+        // //测试 输出关键点数量和第一个关键点信息 正常输出 
+        // // cout << "------------------------" << endl << "关键点数量:" << pCurrentFrame_LinK3D->mvAggregationKeypoints.size();
+        // // cout << "第一个关键点信息x坐标" << pCurrentFrame_LinK3D->mvAggregationKeypoints[0].x;
+        // AggregationKeypoints_LinK3D->points.insert(AggregationKeypoints_LinK3D->points.end(), pCurrentFrame_LinK3D->mvAggregationKeypoints.begin(), pCurrentFrame_LinK3D->mvAggregationKeypoints.end());
         
-        //LinK3D关键点云发布 laserCLoud要换成关键点云
-        sensor_msgs::PointCloud2 laserCloud_LinK3D;
-        pcl::toROSMsg(*AggregationKeypoints_LinK3D, laserCloud_LinK3D);
-        laserCloud_LinK3D.header.stamp = laserCloudMsg->header.stamp;
-        laserCloud_LinK3D.header.frame_id = "camera_init";
-        pubLaserCloud_LinK3D.publish(laserCloud_LinK3D);// 发布当前帧点云
+        // //测试 输出点云中信息 也能正常输出
+        // // cout << "------------------------" << endl << "关键点数量:" << AggregationKeypoints_LinK3D->points.size();
+        // // cout << "第一个关键点信息x坐标" << AggregationKeypoints_LinK3D->points[0].x;
+        // //Id从0开始算，前两帧更新BoW3D词袋
+        // if(pCurrentFrame_LinK3D->mnId < 2)
+        // {
+        //     pBoW3D->update(pCurrentFrame_LinK3D);  
+        // }
+        // else
+        // {                
+        //     int loopFrameId = -1;
+        //     Eigen::Matrix3d loopRelR;
+        //     Eigen::Vector3d loopRelt;
 
-        //用完清空
-        plaserCloudIn_LinK3D.reset(new pcl::PointCloud<pcl::PointXYZ>);
-        //LinK3D植入结束
+        //     clock_t start, end;
+        //     double time;       
+        //     start = clock();
+
+        //     //在3D词袋模型中检索与当前帧相似的帧
+        //     pBoW3D->retrieve(pCurrentFrame_LinK3D, loopFrameId, loopRelR, loopRelt); 
+
+        //     end = clock();
+        //     time = ((double) (end - start)) / CLOCKS_PER_SEC;
+            
+        //     //更新词袋
+        //     pBoW3D->update(pCurrentFrame_LinK3D);               
+
+        //     //输出检测结果
+        //     if(loopFrameId == -1)
+        //     {
+        //         cout << "-------------------------" << endl;
+        //         cout << "Detection Time: " << time << "s" << endl;
+        //         cout << "Frame" << pCurrentFrame_LinK3D->mnId << " Has No Loop..." << endl;
+        //     }
+        //     else
+        //     {
+        //         cout << "--------------------------------------" << endl;
+        //         cout << "Detection Time: " << time << "s" << endl;
+        //         cout << "Frame" << pCurrentFrame_LinK3D->mnId << " Has Loop Frame" << loopFrameId << endl;
+                
+        //         cout << "Loop Relative R: " << endl;
+        //         cout << loopRelR << endl;
+                                
+        //         cout << "Loop Relative t: " << endl;                
+        //         cout << "   " << loopRelt.x() << " " << loopRelt.y() << " " << loopRelt.z() << endl;
+        //     }
+        // }
+        
+        // //LinK3D 关键点云发布 laserCLoud要换成关键点云
+        // sensor_msgs::PointCloud2 laserCloud_LinK3D;
+        // pcl::toROSMsg(*AggregationKeypoints_LinK3D, laserCloud_LinK3D);
+        // laserCloud_LinK3D.header.stamp = laserCloudMsg->header.stamp;
+        // laserCloud_LinK3D.header.frame_id = "camera_init";
+        // pubLaserCloud_LinK3D.publish(laserCloud_LinK3D);// 发布当前帧点云
+
+        // //用完清空
+        // plaserCloudIn_LinK3D.reset(new pcl::PointCloud<pcl::PointXYZ>);
+        // //LinK3D 植入结束
 
         // 点云个数
         cloudSize = laserCloudIn_VD.points.size();
@@ -320,7 +330,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
 
         // 计算起始点和结束点的水平角度，由于激光雷达是顺时针旋转，这里取反就是逆时针坐标系
         float startOri = -atan2(laserCloudIn_VD.points[0].y, laserCloudIn_VD.points[0].x);
-        // atan2的取值范围：[-π, π]，这里加上2π是为了保证起始和结束相差2π，
+        // atan2的取值范围：(-π, π]，这里加上2π是为了保证起始和结束相差2π，
         // 即一周，最理想的情况下从哪里开始就从那里结束(起始点和结束点一致)
         float endOri = -atan2(laserCloudIn_VD.points[cloudSize - 1].y,
                               laserCloudIn_VD.points[cloudSize - 1].x) + 2 * M_PI;
@@ -725,8 +735,6 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     surfPointsLessFlat2.header.frame_id = "camera_init";
     pubSurfPointsLessFlat.publish(surfPointsLessFlat2);// 比较平坦的面点
 
-
-
     // pub each scan
     if(PUB_EACH_LINE)// false
     {
@@ -775,8 +783,8 @@ int main(int argc, char **argv)
     pubSurfPointsFlat = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_flat", 100);
     pubSurfPointsLessFlat = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_less_flat", 100);
     pubRemovePoints = nh.advertise<sensor_msgs::PointCloud2>("/laser_remove_points", 100);
-    //LinK3D关键点发布
-    pubLaserCloud_LinK3D = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_LinK3D", 100);
+    // //LinK3D 关键点发布
+    // pubLaserCloud_LinK3D = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_LinK3D", 100);
 
     if(PUB_EACH_LINE)
     {
