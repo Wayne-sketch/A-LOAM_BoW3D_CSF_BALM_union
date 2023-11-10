@@ -487,7 +487,7 @@ int main(int argc, char **argv)
                 // 把当前帧明显的角点与面点，与上一帧所有的角点与面点进行比较，建立约束
                 // 点到线以及点到面的非线性优化，迭代2次（选择当前优化位姿的特征点匹配，并优化位姿（4次迭代），然后重新选择特征点匹配并优化）
 
-                //todo: link3d 这里需要开始进行修改，利用link3d提取的关键点（质心）进行帧间ICP匹配，仅优化位姿
+                //link3d 这里需要开始进行修改，利用link3d提取的关键点（质心）进行帧间ICP匹配，仅优化位姿
                 // LinK3D
                 removeClosedPointCloud(*plaserCloudIn_LinK3D, *plaserCloudIn_LinK3D, 0.1);
                 //在这里植入LinK3D，把接收到的点云数据用LinK3D提取边缘点和描述子，发布关键点数据，打印输出描述子
@@ -504,11 +504,11 @@ int main(int argc, char **argv)
         //测试 输出点云中信息 也能正常输出
         // cout << "------------------------" << endl << "关键点数量:" << AggregationKeypoints_LinK3D->points.size();
         // cout << "第一个关键点信息x坐标" << AggregationKeypoints_LinK3D->points[0].x;
-                //todo 2.对描述子进行匹配 3.使用匹配对进行帧间icp配准 pPreviousFrame是上一个link3d Frame帧 pCurrentFrame_LinK3D是当前link3d Frame帧
+                // 2.对描述子进行匹配 3.使用匹配对进行帧间icp配准 pPreviousFrame是上一个link3d Frame帧 pCurrentFrame_LinK3D是当前link3d Frame帧
                 // 获取上一帧和当前帧之间的匹配索引
                  vector<pair<int, int>> vMatchedIndex;  
                 pLinK3dExtractor->match(pCurrentFrame_LinK3D->mvAggregationKeypoints, pPreviousFrame->mvAggregationKeypoints, pCurrentFrame_LinK3D->mDescriptors, pPreviousFrame->mDescriptors, vMatchedIndex);
-                //todo 这里仿照BoW3D函数写一个帧间ICP匹配函数求出R,t
+                //仿照BoW3D函数写一个帧间ICP匹配函数求出R,t
                 int returnValue = 0;
                 // 进行帧间ICP匹配 求当前帧到上一帧的位姿变换
                 // 这里求的R t是当前帧点云到上一帧点云的位姿变换
@@ -516,7 +516,7 @@ int main(int argc, char **argv)
                 //至此获得了当前帧点云到上一帧点云的位姿变换
 
                 //当前帧Frame用完以后，赋值给上一帧Frame,赋值前先把要丢掉的帧内存释放
-                //todo 这里Frame里有成员指针，析构函数里delete成员指针
+                //这里Frame里有成员指针，析构函数里delete成员指针
                 delete pPreviousFrame;
                 pPreviousFrame = pCurrentFrame_LinK3D;
                 //LinK3D 植入结束
@@ -853,7 +853,7 @@ int main(int argc, char **argv)
                 // t_w_curr = t_w_curr + q_w_curr * t_last_curr;
                 // q_w_curr = q_w_curr * q_last_curr;
 
-                //todo 这里改为用link3d关键点优化的帧间位姿赋值
+                //这里改为用link3d关键点优化的帧间位姿赋值
                 // //帧间匹配的位姿转换成四元数
                 q_last_curr = Eigen::Quaterniond(RelativeR);
                 t_last_curr = Relativet;
