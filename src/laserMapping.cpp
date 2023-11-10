@@ -422,7 +422,7 @@ void process()
 			transformAssociateToMap();
 			TicToc t_shift;
 			/*
-			前端是scan2sacn，先计算相邻帧间的坐标变换，在计算当前帧到第一帧的坐标变换
+			前端是scan2scan，先计算相邻帧间的坐标变换，在计算当前帧到第一帧的坐标变换
 			后端是scan2map，把当前帧与地图进行匹配，得到更准确的位姿，就可以构建更好的地图
 			由于scan2map的算法计算量远远高于scan2scan的算法，所以后端通常处于一个低频的运行频率，但是其精度高
 			为了提高后端的处理速度,所以要进行地图的栅格化处理
@@ -453,7 +453,8 @@ void process()
 			int centerCubeJ = int((t_w_curr.y() + 25.0) / 50.0) + laserCloudCenHeight;// 10
 			int centerCubeK = int((t_w_curr.z() + 25.0) / 50.0) + laserCloudCenDepth;// 5
 			
-			// ?? 由于c语言的取整是向0取整，因此-1.66取整就成了-1，但是应该是-2，因此这里自减1
+			//以x为例，x在-25~25之间，centerCubeI = 10 x在-75~-25之间，centerCubeI = 9
+			//由于c语言的取整是向0取整，因此-1.66取整就成了-1，但是应该是-2，因此这里自减1
 			if (t_w_curr.x() + 25.0 < 0)
 				centerCubeI--;
 			if (t_w_curr.y() + 25.0 < 0)
@@ -500,6 +501,7 @@ void process()
 				}
 				// 索引右移
 				centerCubeI++;
+				// 地图中心索引也右移，因为后面的点计算需要
 				laserCloudCenWidth++;
 			}
 
@@ -1168,7 +1170,6 @@ int main(int argc, char **argv)
 
 	os_pose.open("/home/wb/ALOAM_Noted_WS/wb/pose/Park_Poses.txt", std::fstream::out);
 
-
 	float lineRes = 0;
 	float planeRes = 0;
 	// 线特征点云的分辨率
@@ -1179,9 +1180,9 @@ int main(int argc, char **argv)
 	// 全局变量，避免计算量太大，进行下采样，体素滤波
 	downSizeFilterCorner.setLeafSize(lineRes, lineRes,lineRes);
 	downSizeFilterSurf.setLeafSize(planeRes, planeRes, planeRes);
-	// 订阅里程计角点
+	// 订阅里程计次边缘点
 	ros::Subscriber subLaserCloudCornerLast = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_corner_last", 100, laserCloudCornerLastHandler);
-	// 订阅里程计面点
+	// 订阅里程计次面点
 	ros::Subscriber subLaserCloudSurfLast = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_surf_last", 100, laserCloudSurfLastHandler);
 	// 订阅前端里程计发布的位姿
 	ros::Subscriber subLaserOdometry = nh.subscribe<nav_msgs::Odometry>("/laser_odom_to_init", 100, laserOdometryHandler);
