@@ -25,6 +25,12 @@ find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
 find_package(OpenCV 4.2 REQUIRED)
 find_package(Ceres REQUIRED)
+# CSF算法添加
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    add_compile_definitions("CSF_USE_OPENMP")
+endif()
+
 
 include_directories(
   include
@@ -38,6 +44,7 @@ include_directories(
   ${Boost_INCLUDE_DIR}
   ${CHOLMOD_INCLUDE_DIR})
 
+add_subdirectory(include/CSF)
 
 #其他功能包使用本功能包的时候定义，如当其他功能包调用这个功能包也需要pcl库的时候就不需要再次find_package(PCL REQUIRED)
 catkin_package( 
@@ -55,6 +62,9 @@ target_link_libraries(alaserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERE
 
 add_executable(alaserMapping src/laserMapping.cpp)
 target_link_libraries(alaserMapping ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES})
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(alaserMapping PUBLIC CSF OpenMP::OpenMP_CXX)
+endif()
 
 add_executable(kittiHelper src/kittiHelper.cpp)
 target_link_libraries(kittiHelper ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
