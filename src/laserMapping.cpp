@@ -775,7 +775,10 @@ void process()
 					//ceres::LossFunction *loss_function = NULL;
 					// 建立ceres问题，和前端一样
 					ceres::LossFunction *loss_function = new ceres::HuberLoss(0.1);
-					ceres::LocalParameterization *q_parameterization = new ceres::EigenQuaternionParameterization();
+					//适配ceres2.1版本
+					// ceres::LocalParameterization *q_parameterization = new ceres::EigenQuaternionParameterization();
+					//适配ceres2.2版本
+					ceres::Manifold *q_parameterization = new ceres::EigenQuaternionManifold();
 					ceres::Problem::Options problem_options;
 
 					ceres::Problem problem(problem_options);
