@@ -93,9 +93,13 @@ using std::sin;
 
 const double scanPeriod = 0.1;
 
+//设置初始化延迟几帧
 const int systemDelay = 0;
+//记录初始化累积了几帧，和systemDelay对比
 int systemInitCount = 0;
+//系统初始化标志
 bool systemInited = false;
+//雷达线数
 int N_SCANS = 0;
 float cloudCurvature[400000];
 int cloudSortInd[400000];
@@ -113,8 +117,11 @@ std::vector<ros::Publisher> pubEachScan;
 
 bool PUB_EACH_LINE = false;
 
+//去除距离LiDAR中心多少距离内的点云 单位（m）
 double MINIMUM_RANGE = 0.1;
+//装80线雷达的点云
 pcl::PointCloud<MyPointType> laserCloudIn_RS;// 80
+//装16、32、64线雷达的点云
 pcl::PointCloud<PointType> laserCloudIn_VD;// 16, 32, 64
 // pcl::PointCloud<pcl::PointXYZ>::Ptr plaserCloudIn_LinK3D(new pcl::PointCloud<pcl::PointXYZ>); //LinK3D 当前帧点云
 
@@ -183,9 +190,10 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     TicToc t_prepare;
     std::vector<int> scanStartInd(N_SCANS, 0);
     std::vector<int> scanEndInd(N_SCANS, 0);
-    // 二维容器，大容器中装有N_SCANS个小容器，每个小容器中装有各各自线束对应的点云
+    // 二维容器，大容器中装有N_SCANS个小容器，每个小容器中装有各自线束对应的点云
     std::vector<pcl::PointCloud<PointType>> laserCloudScans(N_SCANS);
     int scanID = 0;
+    //记录这一帧的点云总数
     int cloudSize = 0;
 
     if(N_SCANS == 80)
@@ -227,7 +235,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
         pcl::fromROSMsg(*laserCloudMsg, laserCloudIn_VD);
         // // LinK3D
         // pcl::fromROSMsg(*laserCloudMsg, *plaserCloudIn_LinK3D);
-        //这个变量保存了下面去除nan点的序号
+        //这个变量保存了下面去除nan点的序号 凑数的 不会再用了
         std::vector<int> indices;
         // 去除点云中的nan点，即无返回的点
         pcl::removeNaNFromPointCloud(laserCloudIn_VD, laserCloudIn_VD, indices);
@@ -310,7 +318,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
         // plaserCloudIn_LinK3D.reset(new pcl::PointCloud<pcl::PointXYZ>);
         // //LinK3D 植入结束
 
-        // 点云个数
+        // 点云个数 去nan点后的
         cloudSize = laserCloudIn_VD.points.size();
         /*
         公式：
@@ -329,6 +337,10 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
         */
 
         // 计算起始点和结束点的水平角度，由于激光雷达是顺时针旋转，这里取反就是逆时针坐标系
+        //? 为什么要取反
+        // 这里计算水平角度是为了给每条扫描线上的点分配时间戳，雷达实际是顺时针旋转扫描，atan2返回的值是符合逆时针方向，角度越大，逆时针旋转越多，
+        // 这里取负号就是为了让越早扫描到的点求出的角度越小，而且每次提前给结束点多加2PI，不符合再减掉，可能因为实际点云的返回值起始点不一定从坐标轴开始，
+        // 也不一定一圈就是2PI
         float startOri = -atan2(laserCloudIn_VD.points[0].y, laserCloudIn_VD.points[0].x);
         // atan2的取值范围：(-π, π]，这里加上2π是为了保证起始和结束相差2π，
         // 即一周，最理想的情况下从哪里开始就从那里结束(起始点和结束点一致)
@@ -363,7 +375,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
             point.z = laserCloudIn_VD.points[i].z;
             // 角度转弧度： π/180×角度，弧度变角度： 180/π×弧度
 
-            // 计算每一个点的俯仰角ω， Z = R * sin(ω) --> ω = arcsin(Z/R)
+            // 计算每一个点的俯仰角ω， Z = R * sin(ω) --> ω = arcsin(Z/R) 这个俯仰角是算出来的
             float angle = atan(point.z / sqrt(point.x * point.x + point.y * point.y)) * 180 / M_PI;
 
             // notice: 以前每个点对应的线束是未知的，需要计算，现在的雷达驱动可以提前计算出来
@@ -371,7 +383,9 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
             if (N_SCANS == 16)
             {
                 // [0°, 30°]，平均分给16根线， 每条线束之间的俯仰角间隔Δω = 2°
-                // 根据俯仰角找到点云对应的线束ID，+0.5为了四舍五入
+                // 根据俯仰角找到点云对应的线束ID，+0.5为了四舍五入、
+                //这里加15度的原因是为了让-15度算出来的scanID为0，除以2的原因是分辨率是2度
+                //所以scanID也是算出来的
                 scanID = int((angle + 15) / 2 + 0.5);
                 // 如果点云对应的线束不合理就跳过该点云
                 if (scanID > (N_SCANS - 1) || scanID < 0)
@@ -410,6 +424,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
 
             // printf("angle %f scanID %d \n", angle, scanID);
             // 计算该点的水平角 主要有 -pi 到 pi 的区间, 分成两个半圆算的,
+            // 这里开始就要为每条扫描线上的点赋时间戳
             float ori = -atan2(point.y, point.x);
 
             // 保证当前水平角度在开始和结束区间之内
@@ -501,16 +516,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
         // ∑(X - Xi)
         // X方向上，左边五个点的x坐标 + 右边五个点的x坐标 - 10 * 当前点的x坐标
         float diffX = laserCloud->points[i - 5].x + laserCloud->points[i - 4].x 
-        + laserCloud->points[i - 3].x + laserCloud->points[i - 2].x 
-        + laserCloud->points[i - 1].x - 10 * laserCloud->points[i].x 
-        + laserCloud->points[i + 1].x + laserCloud->points[i + 2].x 
-        + laserCloud->points[i + 3].x + laserCloud->points[i + 4].x 
-        + laserCloud->points[i + 5].x;
-        float diffY = laserCloud->points[i - 5].y + laserCloud->points[i - 4].y 
-        + laserCloud->points[i - 3].y + laserCloud->points[i - 2].y 
-        + laserCloud->points[i - 1].y - 10 * laserCloud->points[i].y 
-        + laserCloud->points[i + 1].y + laserCloud->points[i + 2].y 
-        + laserCloud->points[i + 3].y + laserCloud->points[i + 4].y 
+        + laserCloud->points[i - 3].x + laserCloud->points[i - 2].x laserCloud
         + laserCloud->points[i + 5].y;
         float diffZ = laserCloud->points[i - 5].z + laserCloud->points[i - 4].z 
         + laserCloud->points[i - 3].z + laserCloud->points[i - 2].z 
@@ -532,7 +538,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     pcl::PointCloud<PointType> cornerPointsSharp;// 极大边线点
     pcl::PointCloud<PointType> cornerPointsLessSharp;// 次极大边线点
     pcl::PointCloud<PointType> surfPointsFlat;// 极小平面点
-    pcl::PointCloud<PointType> surfPointsLessFlat;// 次极小平面
+    pcl::PointCloud<PointType> surfPointsLessFlat;// 次极小平面点
     /*
     曲率计算完成后进行特征分类，提取特征点有几点原则：
     1.为了提高效率，每条扫描线分成6个扇区，在每个扇区内，寻找曲率最大的20个点，作为次极大边线点，其中最大的2个点，同时作为极大边线点；
@@ -546,6 +552,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     for (int i = 0; i < N_SCANS; i++)
     {
         // 去当前线去头去尾后少于6个点，说明无法分成6个扇区，跳过
+        //? 这里好像应该+1，因为起始坐标和终止坐标都是需要访问的点，实际点的个数要+1
         if( scanEndInd[i] - scanStartInd[i] < 6)
             continue;
         // 用来存储不太平整的点
@@ -682,7 +689,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
             // 遍历当前等份
             for (int k = sp; k <= ep; k++)
             {
-                // 如果不是角点，那么认为是面点
+                // 如果不是角点，那么认为是面点，也就是已经算作平坦点的标记为-1和没有任何标记的标记为0的点都算作次小平面点
                 if (cloudLabel[k] <= 0)
                 {
                     surfPointsLessFlatScan->push_back(laserCloud->points[k]);
@@ -709,31 +716,31 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     pcl::toROSMsg(*laserCloud, laserCloudOutMsg);
     laserCloudOutMsg.header.stamp = laserCloudMsg->header.stamp;
     laserCloudOutMsg.header.frame_id = "camera_init";
-    pubLaserCloud.publish(laserCloudOutMsg);// 发布当前帧点云
+    pubLaserCloud.publish(laserCloudOutMsg);// 发布当前帧点云 去除nan点，然后未作任何处理
 
     sensor_msgs::PointCloud2 cornerPointsSharpMsg;
     pcl::toROSMsg(cornerPointsSharp, cornerPointsSharpMsg);
     cornerPointsSharpMsg.header.stamp = laserCloudMsg->header.stamp;
     cornerPointsSharpMsg.header.frame_id = "camera_init";
-    pubCornerPointsSharp.publish(cornerPointsSharpMsg);// 发布曲率大的角点
+    pubCornerPointsSharp.publish(cornerPointsSharpMsg);// 发布极大边线点
 
     sensor_msgs::PointCloud2 cornerPointsLessSharpMsg;
     pcl::toROSMsg(cornerPointsLessSharp, cornerPointsLessSharpMsg);
     cornerPointsLessSharpMsg.header.stamp = laserCloudMsg->header.stamp;
     cornerPointsLessSharpMsg.header.frame_id = "camera_init";
-    pubCornerPointsLessSharp.publish(cornerPointsLessSharpMsg);// 曲率较大的角点
+    pubCornerPointsLessSharp.publish(cornerPointsLessSharpMsg);// 次极大边线点
 
     sensor_msgs::PointCloud2 surfPointsFlat2;
     pcl::toROSMsg(surfPointsFlat, surfPointsFlat2);
     surfPointsFlat2.header.stamp = laserCloudMsg->header.stamp;
     surfPointsFlat2.header.frame_id = "camera_init";
-    pubSurfPointsFlat.publish(surfPointsFlat2);// 平坦的面点
+    pubSurfPointsFlat.publish(surfPointsFlat2);// 极小平面点
 
     sensor_msgs::PointCloud2 surfPointsLessFlat2;
     pcl::toROSMsg(surfPointsLessFlat, surfPointsLessFlat2);
     surfPointsLessFlat2.header.stamp = laserCloudMsg->header.stamp;
     surfPointsLessFlat2.header.frame_id = "camera_init";
-    pubSurfPointsLessFlat.publish(surfPointsLessFlat2);// 比较平坦的面点
+    pubSurfPointsLessFlat.publish(surfPointsLessFlat2);// 次极小平面点
 
     // pub each scan
     if(PUB_EACH_LINE)// false
