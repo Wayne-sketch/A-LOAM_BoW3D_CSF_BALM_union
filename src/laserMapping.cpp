@@ -738,21 +738,21 @@ void process()
 			// printf("little local map corner num %d  surf num %d \n", laserCloudCornerFromMapNum, laserCloudSurfFromMapNum);
 
 			//todo CSF对面点云滤波存下来在rviz中显示地面点
-			CSF csf;
-			csf.params.iterations = 600;
-			csf.params.time_step = 0.95;
-			csf.params.cloth_resolution = 3;
-			csf.params.bSloopSmooth = false;
+			// CSF csf;
+			// csf.params.iterations = 600;
+			// csf.params.time_step = 0.95;
+			// csf.params.cloth_resolution = 3;
+			// csf.params.bSloopSmooth = false;
 
-			csf.setPointCloud(*laserCloudSurfLast);
+			// csf.setPointCloud(*laserCloudSurfLast);
 
-			std::vector<int> groundIndexes, offGroundIndexes;
-			pcl::PointCloud<pcl::PointXYZI>::Ptr groundFrame(new pcl::PointCloud<pcl::PointXYZI>);
-			pcl::PointCloud<pcl::PointXYZI>::Ptr groundFrame2(new pcl::PointCloud<pcl::PointXYZI>);
-			pcl::PointCloud<pcl::PointXYZI>::Ptr offGroundFrame(new pcl::PointCloud<pcl::PointXYZI>);
-			csf.do_filtering(groundIndexes, offGroundIndexes);
-			pcl::copyPointCloud(*laserCloudSurfLast, groundIndexes, *groundFrame);
-			pcl::copyPointCloud(*laserCloudSurfLast, offGroundIndexes, *offGroundFrame);	
+			// std::vector<int> groundIndexes, offGroundIndexes;
+			// pcl::PointCloud<pcl::PointXYZI>::Ptr groundFrame(new pcl::PointCloud<pcl::PointXYZI>);
+			// pcl::PointCloud<pcl::PointXYZI>::Ptr groundFrame2(new pcl::PointCloud<pcl::PointXYZI>);
+			// pcl::PointCloud<pcl::PointXYZI>::Ptr offGroundFrame(new pcl::PointCloud<pcl::PointXYZI>);
+			// csf.do_filtering(groundIndexes, offGroundIndexes);
+			// pcl::copyPointCloud(*laserCloudSurfLast, groundIndexes, *groundFrame);
+			// pcl::copyPointCloud(*laserCloudSurfLast, offGroundIndexes, *offGroundFrame);
 
 
 
@@ -1053,21 +1053,21 @@ void process()
 			// }
 			// printf("add points time %f ms\n", t_add.toc());
 			//todo 提取出的地面点存下来 发布出去 发布前转换一下坐标
-			for (int i = 0; i < groundFrame->points.size(); i++)
-			{
-				// p_map = P_curr * T_curr2map
-				pointAssociateToMap(&groundFrame->points[i], &pointSel);
-				groundFrame2->push_back(pointSel);
-			}
-			sensor_msgs::PointCloud2 CSFGroundPointsCloud;
-			pcl::toROSMsg(*groundFrame2, CSFGroundPointsCloud);
-			CSFGroundPointsCloud.header.stamp = ros::Time().fromSec(timeLaserOdometry);
-			CSFGroundPointsCloud.header.frame_id = "camera_init";
-			pubLaserCloudCSFGroundPoints.publish(CSFGroundPointsCloud);
+			// for (int i = 0; i < groundFrame->points.size(); i++)
+			// {
+			// 	// p_map = P_curr * T_curr2map
+			// 	pointAssociateToMap(&groundFrame->points[i], &pointSel);
+			// 	groundFrame2->push_back(pointSel);
+			// }
+			// sensor_msgs::PointCloud2 CSFGroundPointsCloud;
+			// pcl::toROSMsg(*groundFrame2, CSFGroundPointsCloud);
+			// CSFGroundPointsCloud.header.stamp = ros::Time().fromSec(timeLaserOdometry);
+			// CSFGroundPointsCloud.header.frame_id = "camera_init";
+			// pubLaserCloudCSFGroundPoints.publish(CSFGroundPointsCloud);
 
 			TicToc t_filter;
 
-			// 把当期帧涉及到的小局部地图(±250，±150)的栅格做一个下采样
+			// 把当期帧涉及到的小局部地图(±250，±150)的栅格做一个下采样再放到大地图里
 			for (int i = 0; i < laserCloudValidNum; i++)
 			{
 				int ind = laserCloudValidInd[i];
@@ -1099,7 +1099,7 @@ void process()
 					int ind = laserCloudSurroundInd[i];
 					//laserCloudCornerArray中存的是map世界系下的点云
 					*laserCloudSurround += *laserCloudCornerArray[ind];
-					// *laserCloudSurround += *laserCloudSurfArray[ind];
+					// laserCloudSurround += *laserCloudSurfArray[ind];
 				}
 
 				sensor_msgs::PointCloud2 laserCloudSurround3;
@@ -1141,7 +1141,7 @@ void process()
 				pointAssociateToMap(&laserCloudLink3dPtr->points[i], &laserCloudLink3dPtr->points[i]);
 			}
 
-			// 发布当前帧的完整地图
+			// 发布当前帧只去除nan点的完整点云，但是转换到map世界系下才发布的
 			sensor_msgs::PointCloud2 laserCloudFullRes3;
 			pcl::toROSMsg(*laserCloudFullRes, laserCloudFullRes3);
 			laserCloudFullRes3.header.stamp = ros::Time().fromSec(timeLaserOdometry);
@@ -1183,7 +1183,7 @@ void process()
 			laserAfterMappedPath.header.frame_id = "camera_init";
 			laserAfterMappedPath.poses.push_back(laserAfterMappedPose);
 			
-			// 经过scan to Map 精估计优化后的当前帧平移
+			// 经过scan to Map 精估计优化后的当前帧轨迹
 			pubLaserAfterMappedPath.publish(laserAfterMappedPath);
 
 			static tf::TransformBroadcaster br;

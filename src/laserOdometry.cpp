@@ -90,7 +90,7 @@ int thf = 5;
 //每帧添加或检索的特征数量。
 int num_add_retrieve_features = 5;
 pcl::PointCloud<pcl::PointXYZ>::Ptr plaserCloudIn_LinK3D(new pcl::PointCloud<pcl::PointXYZ>); //LinK3D 当前帧点云
-//帧间ICP匹配的位子变换
+//帧间ICP匹配的位姿变换
 Eigen::Matrix3d RelativeR;
 Eigen::Vector3d Relativet;
 
@@ -346,15 +346,15 @@ int main(int argc, char **argv)
     // 10hz
     printf("Mapping %d Hz \n", 10 / skipFrameNum);
     // ------------------------ 输入 ---------------------
-    // 订阅曲率大的角点，并传入回调函数中处理，消息队列的长度为100
+    // 订阅极大边线点，并传入回调函数中处理，消息队列的长度为100
     ros::Subscriber subCornerPointsSharp = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_sharp", 100, laserCloudSharpHandler);
-    // 订阅曲率较大的角点
+    // 订阅次极大边线点
     ros::Subscriber subCornerPointsLessSharp = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_less_sharp", 100, laserCloudLessSharpHandler);
-    // 订阅平坦的面点
+    // 订阅极小平面点
     ros::Subscriber subSurfPointsFlat = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_flat", 100, laserCloudFlatHandler);
-    // 订阅较平坦的面点
+    // 订阅次极小平面点
     ros::Subscriber subSurfPointsLessFlat = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_less_flat", 100, laserCloudLessFlatHandler);
-    // 当前点云
+    // 当前点云 去除nan点后未作任何处理
     ros::Subscriber subLaserCloudFullRes = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_cloud_2", 100, laserCloudFullResHandler);
 
     // //link3d
@@ -375,7 +375,7 @@ int main(int argc, char **argv)
     // //link3d
     // ros::Publisher pubLaserCloudLink3d_odom = nh.advertise<sensor_msgs::PointCloud2>("/odomLink3d_cloud", 100);
 
-    // 发布里程计数据(位姿轨迹)给后端，后端接收
+    // 发布里程计数据(位姿轨迹)给后端，后端接收 当前帧到初始帧的位姿
     ros::Publisher pubLaserOdometry = nh.advertise<nav_msgs::Odometry>("/laser_odom_to_init", 100);
     // 发布前端里程计的高频低精 位姿轨迹
     ros::Publisher pubLaserPath = nh.advertise<nav_msgs::Path>("/laser_odom_path", 100);
@@ -452,16 +452,15 @@ int main(int argc, char **argv)
             //link3d 把当前帧点云单独存一个用作link3d处理
             pcl::fromROSMsg(*fullPointsBuf.front(), *plaserCloudIn_LinK3D);
             //测试
-            cout << plaserCloudIn_LinK3D->points[0].x;
+            // cout << plaserCloudIn_LinK3D->points[0].x;
             fullPointsBuf.pop();
-
             // //link3d
             // laserCloudLink3d->clear();
             // pcl::fromROSMsg(*odom_link3dPointsBuf.front(), *laserCloudLink3d);
             // odom_link3dPointsBuf.pop();
-
             //这个锁很关键
             mBuf.unlock();
+
             TicToc t_whole;
             // initializing，第一帧，这个条件语句后面会把当前帧点云存到上一帧点云，并创建KDtree
             if (!systemInited)
@@ -478,9 +477,9 @@ int main(int argc, char **argv)
             else// 第二帧之后进来
             {
                 // ----------------------- 雷达里程计 -------------------------
-                // 当前帧中，曲率大的点的个数
+                // 当前帧中，极大边线点的个数
                 int cornerPointsSharpNum = cornerPointsSharp->points.size();
-                // 当前帧中，平坦大的点的个数
+                // 当前帧中，极小平面点的个数
                 int surfPointsFlatNum = surfPointsFlat->points.size();
                 // 计算优化的时间
                 TicToc t_opt;
@@ -854,10 +853,10 @@ int main(int argc, char **argv)
                 // q_w_curr = q_w_curr * q_last_curr;
 
                 //这里改为用link3d关键点优化的帧间位姿赋值
-                // //帧间匹配的位姿转换成四元数
+                //帧间匹配的位姿转换成四元数/
                 q_last_curr = Eigen::Quaterniond(RelativeR);
                 t_last_curr = Relativet;
-                // //更新当前帧到世界系变换
+                //更新当前帧到世界系变换
                 t_w_curr = t_w_curr + q_w_curr * t_last_curr;
                 q_w_curr = q_w_curr * q_last_curr;
             }
@@ -916,6 +915,7 @@ int main(int argc, char **argv)
             // 位姿估计完毕之后，当前边线点和平面点就变成了上一帧的边线点和平面点，把索引和数量都转移过去
             // curr 存一下当前帧的指针
             //利用一个临时点云指针把当前从配准端接收到的次边缘点和次平面点分别与上一帧边缘点和平面点指针互换
+            //? 这里应该是为了下次匹配的时候有更多的点进行匹配好做帧间匹配吧
             pcl::PointCloud<PointType>::Ptr laserCloudTemp = cornerPointsLessSharp;
             // curr --> last 当前帧指向上一帧
             cornerPointsLessSharp = laserCloudCornerLast;

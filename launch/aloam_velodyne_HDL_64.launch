@@ -17,7 +17,7 @@
 
     <node pkg="aloam_velodyne" type="alaserMapping" name="alaserMapping" output="screen" />
 
-    <node pkg="tf" type="static_transform_publisher" name="rslidar_base_broadcaster" args="0 0 0 0 0 0 /map camera_init 100" />
+    <!-- <node pkg="tf" type="static_transform_publisher" name="rslidar_base_broadcaster" args="0 0 0 0 0 0 /map camera_init 100" /> -->
 
     <arg name="rviz" default="true" />
     <group if="$(arg rviz)">

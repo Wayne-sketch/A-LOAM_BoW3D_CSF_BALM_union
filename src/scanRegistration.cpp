@@ -516,7 +516,16 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
         // ∑(X - Xi)
         // X方向上，左边五个点的x坐标 + 右边五个点的x坐标 - 10 * 当前点的x坐标
         float diffX = laserCloud->points[i - 5].x + laserCloud->points[i - 4].x 
-        + laserCloud->points[i - 3].x + laserCloud->points[i - 2].x laserCloud
+        + laserCloud->points[i - 3].x + laserCloud->points[i - 2].x 
+        + laserCloud->points[i - 1].x - 10 * laserCloud->points[i].x 
+        + laserCloud->points[i + 1].x + laserCloud->points[i + 2].x 
+        + laserCloud->points[i + 3].x + laserCloud->points[i + 4].x 
+        + laserCloud->points[i + 5].x;
+        float diffY = laserCloud->points[i - 5].y + laserCloud->points[i - 4].y 
+        + laserCloud->points[i - 3].y + laserCloud->points[i - 2].y 
+        + laserCloud->points[i - 1].y - 10 * laserCloud->points[i].y 
+        + laserCloud->points[i + 1].y + laserCloud->points[i + 2].y 
+        + laserCloud->points[i + 3].y + laserCloud->points[i + 4].y
         + laserCloud->points[i + 5].y;
         float diffZ = laserCloud->points[i - 5].z + laserCloud->points[i - 4].z 
         + laserCloud->points[i - 3].z + laserCloud->points[i - 2].z 
