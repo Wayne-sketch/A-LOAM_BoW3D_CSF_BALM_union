@@ -143,11 +143,10 @@ Eigen::Vector3d t_wodom_curr(0, 0, 0);
 std::queue<sensor_msgs::PointCloud2ConstPtr> cornerLastBuf;
 std::queue<sensor_msgs::PointCloud2ConstPtr> surfLastBuf;
 std::queue<sensor_msgs::PointCloud2ConstPtr> fullResBuf;
-
+std::queue<nav_msgs::Odometry::ConstPtr> odometryBuf;
 //link3d
 std::queue<sensor_msgs::PointCloud2ConstPtr> Link3dBuf;
 
-std::queue<nav_msgs::Odometry::ConstPtr> odometryBuf;
 std::mutex mBuf;
 
 pcl::VoxelGrid<PointType> downSizeFilterCorner;
@@ -303,7 +302,7 @@ void laserOdometryHandler(const nav_msgs::Odometry::ConstPtr &laserOdometry)
 // 后端建图和位姿优化，前端发布的频率为10hz，所以后端处理一帧的时间最好在0.1s内
 void process()
 {
-	while(1)
+	while(ros::ok())
 	{
 		// 确保buf里面都有值
 		while (!cornerLastBuf.empty() && !surfLastBuf.empty() && !fullResBuf.empty() && !odometryBuf.empty() && !Link3dBuf.empty())
@@ -726,33 +725,6 @@ void process()
 			downSizeFilterCorner.filter(*laserCloudCornerStack);
 			int laserCloudCornerStackNum = laserCloudCornerStack->points.size();
 
-			// pcl::PointCloud<PointType>::Ptr laserCloudSurfStack(new pcl::PointCloud<PointType>());
-			// downSizeFilterSurf.setInputCloud(laserCloudSurfLast);
-			// 保存下采样的点云
-			// downSizeFilterSurf.filter(*laserCloudSurfStack);
-			// 当前帧下采样之后，面点个数
-			// int laserCloudSurfStackNum = laserCloudSurfStack->points.size();
-			// 局部地图提取的时间是
-			// printf("little local map prepare time %f ms\n", t_shift.toc());
-			// 局部地图中的角点数为 面点数是
-			// printf("little local map corner num %d  surf num %d \n", laserCloudCornerFromMapNum, laserCloudSurfFromMapNum);
-
-			//todo CSF对面点云滤波存下来在rviz中显示地面点
-			// CSF csf;
-			// csf.params.iterations = 600;
-			// csf.params.time_step = 0.95;
-			// csf.params.cloth_resolution = 3;
-			// csf.params.bSloopSmooth = false;
-
-			// csf.setPointCloud(*laserCloudSurfLast);
-
-			// std::vector<int> groundIndexes, offGroundIndexes;
-			// pcl::PointCloud<pcl::PointXYZI>::Ptr groundFrame(new pcl::PointCloud<pcl::PointXYZI>);
-			// pcl::PointCloud<pcl::PointXYZI>::Ptr groundFrame2(new pcl::PointCloud<pcl::PointXYZI>);
-			// pcl::PointCloud<pcl::PointXYZI>::Ptr offGroundFrame(new pcl::PointCloud<pcl::PointXYZI>);
-			// csf.do_filtering(groundIndexes, offGroundIndexes);
-			// pcl::copyPointCloud(*laserCloudSurfLast, groundIndexes, *groundFrame);
-			// pcl::copyPointCloud(*laserCloudSurfLast, offGroundIndexes, *offGroundFrame);
 
 
 
@@ -776,9 +748,9 @@ void process()
 					// 建立ceres问题，和前端一样
 					ceres::LossFunction *loss_function = new ceres::HuberLoss(0.1);
 					//适配ceres2.1版本
-					// ceres::LocalParameterization *q_parameterization = new ceres::EigenQuaternionParameterization();
-					//适配ceres2.2版本
-					ceres::Manifold *q_parameterization = new ceres::EigenQuaternionManifold();
+					ceres::LocalParameterization *q_parameterization = new ceres::EigenQuaternionParameterization();
+					//todo 适配ceres2.2版本 目前还是有bug没有解决 暂时不用 只用2.1版本的ceres
+					// ceres::Manifold *q_parameterization = new ceres::EigenQuaternionManifold();
 					ceres::Problem::Options problem_options;
 
 					ceres::Problem problem(problem_options);
@@ -969,7 +941,7 @@ void process()
 					ceres::Solver::Summary summary;
 					ceres::Solve(options, &problem, &summary);
 					// 一次ceres求解的时间
-					// printf("mapping solver time %f ms \n", t_solver.toc());
+					printf("mapping solver time %f ms \n", t_solver.toc());
 
 					//printf("time %f \n", timeLaserOdometry);
 					//printf("corner factor num %d surf factor num %d\n", corner_num, surf_num);
@@ -1052,18 +1024,6 @@ void process()
 			// 	}
 			// }
 			// printf("add points time %f ms\n", t_add.toc());
-			//todo 提取出的地面点存下来 发布出去 发布前转换一下坐标
-			// for (int i = 0; i < groundFrame->points.size(); i++)
-			// {
-			// 	// p_map = P_curr * T_curr2map
-			// 	pointAssociateToMap(&groundFrame->points[i], &pointSel);
-			// 	groundFrame2->push_back(pointSel);
-			// }
-			// sensor_msgs::PointCloud2 CSFGroundPointsCloud;
-			// pcl::toROSMsg(*groundFrame2, CSFGroundPointsCloud);
-			// CSFGroundPointsCloud.header.stamp = ros::Time().fromSec(timeLaserOdometry);
-			// CSFGroundPointsCloud.header.frame_id = "camera_init";
-			// pubLaserCloudCSFGroundPoints.publish(CSFGroundPointsCloud);
 
 			TicToc t_filter;
 
@@ -1087,6 +1047,51 @@ void process()
 			printf("filter time %f ms \n", t_filter.toc());
 			
 			TicToc t_pub;
+			//todo CSF对面点云滤波存下来在rviz中显示地面点 面点可能太多了，进行一次降采样
+			// TicToc t_csf;
+			// pcl::PointCloud<PointType>::Ptr laserCloudSurfStack(new pcl::PointCloud<PointType>());
+			// downSizeFilterSurf.setInputCloud(laserCloudSurfLast);
+			// // 保存下采样的点云
+			// downSizeFilterSurf.filter(*laserCloudSurfStack);
+			// // 当前帧下采样之后，面点个数
+			// int laserCloudSurfStackNum = laserCloudSurfStack->points.size();
+			// 局部地图提取的时间是
+			// printf("little local map prepare time %f ms\n", t_shift.toc());
+			// 局部地图中的角点数为 面点数是
+			// printf("little local map corner num %d  surf num %d \n", laserCloudCornerFromMapNum, laserCloudSurfFromMapNum);
+
+			CSF csf;
+			csf.params.iterations = 600;
+			csf.params.time_step = 0.95;
+			csf.params.cloth_resolution = 3;
+			csf.params.bSloopSmooth = false;
+
+			csf.setPointCloud(*laserCloudSurfLast);
+
+			std::vector<int> groundIndexes, offGroundIndexes;
+			pcl::PointCloud<pcl::PointXYZI>::Ptr groundFrame(new pcl::PointCloud<pcl::PointXYZI>);
+			pcl::PointCloud<pcl::PointXYZI>::Ptr groundFrame2(new pcl::PointCloud<pcl::PointXYZI>);
+			pcl::PointCloud<pcl::PointXYZI>::Ptr offGroundFrame(new pcl::PointCloud<pcl::PointXYZI>);
+			csf.do_filtering(groundIndexes, offGroundIndexes);
+			pcl::copyPointCloud(*laserCloudSurfLast, groundIndexes, *groundFrame);
+			pcl::copyPointCloud(*laserCloudSurfLast, offGroundIndexes, *offGroundFrame);
+			printf("csf time %f ms\n", t_csf.toc());
+
+			//todo 提取出的地面点存下来 发布出去 发布前转换一下坐标
+			TicToc t_pub_csf;
+			for (int i = 0; i < groundFrame->points.size(); i++)
+			{
+				// p_map = P_curr * T_curr2map
+				pointAssociateToMap(&groundFrame->points[i], &pointSel);
+				groundFrame2->push_back(pointSel);
+			}
+			sensor_msgs::PointCloud2 CSFGroundPointsCloud;
+			pcl::toROSMsg(*groundFrame2, CSFGroundPointsCloud);
+			CSFGroundPointsCloud.header.stamp = ros::Time().fromSec(timeLaserOdometry);
+			CSFGroundPointsCloud.header.frame_id = "camera_init";
+			pubLaserCloudCSFGroundPoints.publish(CSFGroundPointsCloud);
+			printf("pub csf time %f ms\n", t_pub_csf.toc());
+
 
 			//publish surround map for every 5 frame
 			// 每5帧发布大局部地图

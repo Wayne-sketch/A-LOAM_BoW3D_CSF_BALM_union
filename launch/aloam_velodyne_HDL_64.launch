@@ -16,6 +16,7 @@
     <!-- --> <node pkg="aloam_velodyne" type="alaserOdometry" name="alaserOdometry" output="screen" /> 
 
     <node pkg="aloam_velodyne" type="alaserMapping" name="alaserMapping" output="screen" />
+    <!-- <node pkg="aloam_velodyne" type="ScanToMap" name="ScanToMap" output="screen" /> -->
 
     <!-- <node pkg="tf" type="static_transform_publisher" name="rslidar_base_broadcaster" args="0 0 0 0 0 0 /map camera_init 100" /> -->
 

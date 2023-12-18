@@ -57,14 +57,26 @@ catkin_package(
 add_executable(ascanRegistration src/scanRegistration.cpp)
 target_link_libraries(ascanRegistration ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ${OpenCV_LIBS} ${G2O_LIBS} ${Sophus_LIBRARIES})
 
+# add_executable(FrontEnd src/FrontEnd.cpp)
+# target_link_libraries(FrontEnd ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ${OpenCV_LIBS} ${G2O_LIBS} ${Sophus_LIBRARIES})
+
 add_executable(alaserOdometry src/laserOdometry.cpp src/Frame.cpp src/LinK3D_Extractor.cpp src/ICP_ceres.cpp)
 target_link_libraries(alaserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ${OpenCV_LIBS} ${G2O_LIBS} ${Sophus_LIBRARIES})
+
+# add_executable(BALM src/BALM.cpp)
+# target_link_libraries(BALM ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ${OpenCV_LIBS} ${G2O_LIBS} ${Sophus_LIBRARIES})
 
 add_executable(alaserMapping src/laserMapping.cpp)
 target_link_libraries(alaserMapping ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES})
 if(OpenMP_CXX_FOUND)
     target_link_libraries(alaserMapping PUBLIC CSF OpenMP::OpenMP_CXX)
 endif()
+
+# add_executable(ScanToMap src/ScanToMap.cpp)
+# target_link_libraries(ScanToMap ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES})
+# if(OpenMP_CXX_FOUND)
+#     target_link_libraries(ScanToMap PUBLIC CSF OpenMP::OpenMP_CXX)
+# endif()
 
 add_executable(kittiHelper src/kittiHelper.cpp)
 target_link_libraries(kittiHelper ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
