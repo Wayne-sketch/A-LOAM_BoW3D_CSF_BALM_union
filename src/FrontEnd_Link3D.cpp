@@ -3,9 +3,7 @@
  * @author ctx (cuitongxin201024@163.com)
  * @brief 前端里程计的实现
  * 1、接收原始LiDAR点云数据，进行点云预处理
- * 
- * 
- * 
+ * 2、LinK3D分步实现 
  * @version 0.1
  * @date 2023-12-18
  * 
@@ -13,123 +11,157 @@
  * 
  */
 
-#include <cmath>
-#include <nav_msgs/Odometry.h>
-#include <nav_msgs/Path.h>
-#include <geometry_msgs/PoseStamped.h>
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-#include <pcl/filters/voxel_grid.h>
-#include <pcl/kdtree/kdtree_flann.h>
-#include <pcl_conversions/pcl_conversions.h>
 #include <ros/ros.h>
-#include <sensor_msgs/Imu.h>
-#include <sensor_msgs/PointCloud2.h>
-#include <tf/transform_datatypes.h>
-#include <tf/transform_broadcaster.h>
-#include <eigen3/Eigen/Dense>
-#include <mutex>
-#include <queue>
-#include "aloam_velodyne/common.h"
-#include "aloam_velodyne/tic_toc.h"
-#include "lidarFactor.hpp"
-#include<fstream>
-#include <iostream>
-#include <sstream>
+#include <string>
 
-//LinK3D
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/point_types.h>
 #include <eigen3/Eigen/Dense>
 #include <pcl/filters/extract_indices.h>
+#include <ceres/ceres.h>
+
 #include <sstream>
 #include <iomanip>
-#include "BoW3D/LinK3D_Extractor.h"
-#include "BoW3D/BoW3D.h"
-//智能指针头文件
-#include <memory>
-//link3d 关键点帧间ICP匹配
-#include "ICP_ceres/ICP_ceres.h"
 
-using namespace BoW3D;
+#include <sensor_msgs/PointCloud2.h>
+#include <pcl_conversions/pcl_conversions.h>
+#include <opencv2/highgui.hpp>
+#include <opencv2/core/types.hpp>
+#include <opencv2/core/core.hpp>
+#include <ceres/ceres.h>
+#include <Eigen/Dense>
+#include <opencv2/core/eigen.hpp>
+
+// #include <cv.hpp>
+#include <opencv2/imgproc/types_c.h>
+
+#include <opencv2/core.hpp>
+#include <opencv2/calib3d/calib3d.hpp>
+#include <chrono>
+#include <image_transport/image_transport.h>
+#include <cv_bridge/cv_bridge.h>
+#include <nav_msgs/Path.h>
+#include <nav_msgs/Odometry.h>
+#include "aloam_velodyne/rotation.h"
+
+using namespace std;
+using namespace cv;
+using namespace std::chrono;
 
 //Parameters of LinK3D
 //雷达扫描线数
 int nScans = 64; //Number of LiDAR scan lines
 //雷达扫描周期
-float scanPeriod_LinK3D = 0.1; 
+float scanPeriod = 0.1; 
 //最小点云距离范围，距离原点小于该阈值的点将被删除
-float minimumRange = 0.1;
+double minimumRange = 0.1;
 //判断区域内某点和聚类点均值距离，以及在x，y轴上的距离
 float distanceTh = 0.4;
 //描述子匹配所需的最低分数阈值 ，描述子匹配分数低于此分数的两个关键点不匹配
 int matchTh = 6;
-//Parameters of BoW3D
-//比率阈值。
-float thr = 3.5;
-//频率阈值。
-int thf = 5;
-//每帧添加或检索的特征数量。
-int num_add_retrieve_features = 5;
-pcl::PointCloud<pcl::PointXYZ>::Ptr plaserCloudIn_LinK3D(new pcl::PointCloud<pcl::PointXYZ>); //LinK3D 当前帧点云
-//帧间ICP匹配的位姿变换
-Eigen::Matrix3d RelativeR;
-Eigen::Vector3d Relativet;
 
+float cloudCurvature[400000];
+int cloudSortInd[400000];
+int cloudNeighborPicked[400000];
+int cloudLabel[400000];
+bool comp (int i,int j) { return (cloudCurvature[i]<cloudCurvature[j]); }
+struct VelodynePointXYZIRT
+{
+    PCL_ADD_POINT4D
+    PCL_ADD_INTENSITY;
+    float ring;
+    // △t
+    float time;
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+} EIGEN_ALIGN16;
 
-using namespace std;
-// ofstream os_pose;
-#define DISTORTION 0
-int corner_correspondence = 0, plane_correspondence = 0;
-//编译时求值
-constexpr double SCAN_PERIOD = 0.1;
-constexpr double DISTANCE_SQ_THRESHOLD = 25;
-constexpr double NEARBY_SCAN = 2.5;
+// 注册Velodyne点云结构
+POINT_CLOUD_REGISTER_POINT_STRUCT (VelodynePointXYZIRT,
+                                   (float, x, x)(float, y, y)(float, z, z)
+                                           (float, intensity, intensity)
+                                           (float, ring, ring)(float, time, time))
+struct PointXYZSCA
+{
+    PCL_ADD_POINT4D;
+    float scan_position;
+    float curvature;
+    float angle;
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+}EIGEN_ALIGN16;
 
-int skipFrameNum = 5;
-bool systemInited = false;
+POINT_CLOUD_REGISTER_POINT_STRUCT(PointXYZSCA,
+                                  (float, x, x)(float, y, y)(float, z, z)(float, scan_position, scan_position)(float, curvature, curvature)(float, angle, angle))
+typedef vector<vector<PointXYZSCA>> ScanEdgePoints;
+#define distXY(a) sqrt(a.x * a.x + a.y * a.y)
 
-double timeCornerPointsSharp = 0;
-double timeCornerPointsLessSharp = 0;
-double timeSurfPointsFlat = 0;
-double timeSurfPointsLessFlat = 0;
-double timeLaserCloudFullRes = 0;
+// 点云容器
+pcl::PointCloud<pcl::PointXYZI> laserCloud;// 一帧原始点云
+pcl::PointCloud<pcl::PointXYZI> cornerPointsLessSharp;// 次极大边线点
+pcl::PointCloud<pcl::PointXYZI> surfPointsLessFlat;// 次极小平面
+pcl::PointCloud<pcl::PointXYZ> laserCloudInVD; //16、32、64线LiDAR点云
+pcl::PointCloud<VelodynePointXYZIRT> laserCloudInRS; //80线LiDAR点云
 
+cv::Mat  _LastImage;
+std::vector<cv::Mat> _curr_images;
+std::vector< std::pair<cv::Point2f, pcl::PointXYZI> > _LastProj;
+std::map<int, cv::Point2f> _2DMatch1, _2DMatch2;
 
-// 创建KD-Tree对象
-pcl::KdTreeFLANN<pcl::PointXYZI>::Ptr kdtreeCornerLast(new pcl::KdTreeFLANN<pcl::PointXYZI>());
-pcl::KdTreeFLANN<pcl::PointXYZI>::Ptr kdtreeSurfLast(new pcl::KdTreeFLANN<pcl::PointXYZI>());
-
-// 接受配准端发布的点云
-pcl::PointCloud<PointType>::Ptr cornerPointsSharp(new pcl::PointCloud<PointType>());
-pcl::PointCloud<PointType>::Ptr cornerPointsLessSharp(new pcl::PointCloud<PointType>());
-pcl::PointCloud<PointType>::Ptr surfPointsFlat(new pcl::PointCloud<PointType>());
-pcl::PointCloud<PointType>::Ptr surfPointsLessFlat(new pcl::PointCloud<PointType>());
-
-pcl::PointCloud<PointType>::Ptr laserCloudCornerLast(new pcl::PointCloud<PointType>());
-pcl::PointCloud<PointType>::Ptr laserCloudSurfLast(new pcl::PointCloud<PointType>());
-pcl::PointCloud<PointType>::Ptr laserCloudFullRes(new pcl::PointCloud<PointType>());
-
-int laserCloudCornerLastNum = 0;
-int laserCloudSurfLastNum = 0;
+ros::Publisher pubLaserCloudCornerLast;
+ros::Publisher pubLaserCloudSurfLast;
+ros::Publisher pubLaserCloudFullRes;
+ros::Publisher pubLaserOdometry;
+ros::Publisher pubLaserPath;
+image_transport::Publisher pubImage;
+nav_msgs::Path laserPath;
+ros::Publisher pubCenter;
 
 // Transformation from current frame to world frame
 // 全局变量，被不断更新
 Eigen::Quaterniond q_w_curr(1, 0, 0, 0);
 Eigen::Vector3d t_w_curr(0, 0, 0);
+Eigen::Quaterniond q_last_curr;
+Eigen::Vector3d t_last_curr;
 
-// 帧间位姿：q_curr_last(x, y, z, w), t_curr_last
-double para_q[4] = {0, 0, 0, 1};
-double para_t[3] = {0, 0, 0};
-// 内存映射，相当于引用
-Eigen::Map<Eigen::Quaterniond> q_last_curr(para_q);
-Eigen::Map<Eigen::Vector3d> t_last_curr(para_t);
+pcl::VoxelGrid<pcl::PointXYZI> FilterGround;
+double FilterGroundLeaf;
 
-std::queue<sensor_msgs::PointCloud2ConstPtr> cornerSharpBuf;
-std::queue<sensor_msgs::PointCloud2ConstPtr> cornerLessSharpBuf;
-std::queue<sensor_msgs::PointCloud2ConstPtr> surfFlatBuf;
-std::queue<sensor_msgs::PointCloud2ConstPtr> surfLessFlatBuf;
-std::queue<sensor_msgs::PointCloud2ConstPtr> fullPointsBuf;
+pcl::PointCloud<pcl::PointXYZI> keyPoints_curr;
+pcl::PointCloud<pcl::PointXYZI> keyPoints_last;
 
-std::mutex mBuf;
+cv::Mat descriptors_curr;
+cv::Mat descriptors_last;
+
+#define distPt2Pt(a, b) sqrt((a.x - b.x)*(a.x - b.x) + (a.y - b.y)*(a.y - b.y) + (a.z - b.z)*(a.z - b.z))
+struct ICPCeres
+{
+    // 构造函数
+    ICPCeres ( cv::Point3f uvw, cv::Point3f xyz ) : _uvw(uvw),_xyz(xyz) {}
+    // 残差的计算
+    template <typename T>
+    bool operator() (
+            const T* const camera,     // 模型参数，有4维
+            T* residual ) const     // 残差
+    {
+        T p[3];
+        T point[3];
+        point[0]=T(_xyz.x);
+        point[1]=T(_xyz.y);
+        point[2]=T(_xyz.z);
+        AngleAxisRotatePoint(camera, point, p);//计算RP
+        p[0] += camera[3]; p[1] += camera[4]; p[2] += camera[5];
+        residual[0] = T(_uvw.x)-p[0];
+        residual[1] = T(_uvw.y)-p[1];
+        residual[2] = T(_uvw.z)-p[2];
+        return true;
+    }
+    static ceres::CostFunction* Create(const cv::Point3f uvw,const cv::Point3f xyz)
+    {
+        return (new ceres::AutoDiffCostFunction<ICPCeres, 3, 6>(
+                new ICPCeres(uvw,xyz)));
+    }
+    const cv::Point3f _uvw;
+    const cv::Point3f _xyz;
+};
 
 /**
  * @brief 除去距离lidar过近的点
@@ -173,91 +205,6 @@ void removeClosedPointCloud(const pcl::PointCloud<PointT> &cloud_in,
     // 有效点云个数
     cloud_out.width = static_cast<uint32_t>(j);
     cloud_out.is_dense = true;
-}
-
-/*
-计算当前位置到起始位置的坐标变换，将当前的点转换到起始点位置，
-即将100毫秒内的一帧的点云，统一到一个时间点的坐标系上
-P_start = T_curr2start * P_curr
-如何获取 T_curr2start:
-1.如果有高频里程计，可以方便的获取每个点相对于起始扫描的位姿
-2.如果有imu，可以方便的求出每个点对起始点的旋转
-3.如果没有其他里程计，可以使用匀速运动模型，使用上一个帧间里程计的结果作为当前两帧之间的
-运动，同时假设当前帧也是匀速运动，也可以估计出每个点相对于起始时刻的位姿
-
-使用激光点云的强度构建图像，根据两帧数据图像之间的位移估计地面车辆的线速度和角速度
-有了速度之后，再根据两帧之间的时间间隔，乘以速度，就可以得到两帧的位移增量和速度增量
-在加上上一时刻的后验位姿就可以得到当前
-
-k-1 到 k 帧 和 k到k+1帧的运动是一至的,用k-1到k帧的位姿变换当做k到k+1帧的位姿变换, 可以求到k到k+1帧的每个点的位姿变换
-*/
-
-// 输入当前点的地址，当前点无法修改
-// 把所有的点补偿到起始时刻，输出的是一个带有强度信息的三维点
-void TransformToStart(PointType const *const pi, PointType *const po)
-{
-    // interpolation ratio
-    double s;
-    // 默认为0
-    if (DISTORTION)
-    {
-        // s = pi->timestamp / SCAN_PERIOD;
-        // 当前点相对与起始时刻的时间差(小数部分)/100ms = 比例
-        s = (pi->intensity - int(pi->intensity)) / SCAN_PERIOD;
-    }
-    else
-    {
-        // 由于kitti数据集上的lidar已经做过运动补偿，因此这里就不做具体补偿了DISTORTION = false
-        s = 1.0;// s = 1s说明全部补偿到点云结束的时刻
-    }
-
-    /*
-    s = 1 ->  T_curr2start =  T_end2start;
-    做一个匀速模型假设,即上一帧的位姿变换,就是这帧的位姿变换
-    以此来求出输入点坐标系到起始时刻点坐标系的位姿变换,通过上面求的时间占比s，这里把位姿变换 分解成了 旋转 + 平移 的方式
-    由于四元数是一个超复数,不是简单的乘法,求它的占比用的 Eigen的slerp函数(球面线性插值)
-    上一帧到当前帧的位姿变化量 为当前帧结束点的位姿到起始点的位姿的变化量： q_last_curr =  q_curr2last = R_end2start
-    R_curr2start  = R_end2start(100ms) * 差值比例为s
-    */
-    //q_last_curr是当前帧初始时刻到上一帧初始时刻的位姿变换，根据匀速模型假设，等于当前帧结束点到初始点的位姿变换
-    //s这个比例越大，插值结果越接近q_last_curr
-    Eigen::Quaterniond q_point_last = Eigen::Quaterniond::Identity().slerp(s, q_last_curr);
-    // 平移增量 * s
-    Eigen::Vector3d t_point_last = s * t_last_curr;
-    Eigen::Vector3d point(pi->x, pi->y, pi->z);
-    
-    // 当前帧点云转换到上一帧坐标系后的点：P_last = T_curr2last * P_curr
-    Eigen::Vector3d un_point = q_point_last * point + t_point_last;
-
-    po->x = un_point.x();
-    po->y = un_point.y();
-    po->z = un_point.z();
-    po->intensity = pi->intensity;
-}
-
-// transform all lidar points to the start of the next frame
-// 把所有的点补偿到结束时刻
-void TransformToEnd(PointType const *const pi, PointType *const po)
-{
-    // undistort point first
-    pcl::PointXYZI un_point_tmp;
-    // 把所有的点补偿到起始时刻
-    TransformToStart(pi, &un_point_tmp);
-    // 保存去畸变后的点 P_start
-    Eigen::Vector3d un_point(un_point_tmp.x, un_point_tmp.y, un_point_tmp.z);
-    /*
-    把所有的点补偿到结束时刻:
-    p_start = P_end * R_end2start + t_end2start 
-    P_end = (p_start - t_end2start) * R_end2start¯¹
-    */
-    Eigen::Vector3d point_end = q_last_curr.inverse() * (un_point - t_last_curr);
-
-    po->x = point_end.x();
-    po->y = point_end.y();
-    po->z = point_end.z();
-
-    //Remove distortion time info
-    po->intensity = int(pi->intensity);
 }
 
 void extractEdgePoint(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg, ScanEdgePoints &edgePoints)
@@ -639,6 +586,696 @@ void extractEdgePoint(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg, Sca
 
 }
 
+// Roughly divide the areas to save time for clustering.
+void divideArea(ScanEdgePoints &scanCloud, ScanEdgePoints &sectorAreaCloud)
+{
+    // The horizontal plane is divided into 120 sector area centered on LiDAR coordinate.
+    sectorAreaCloud.resize(120);
+    // 线束
+    int numScansPt = scanCloud.size();
+    if(numScansPt == 0)
+    {
+        return;
+    }
+    // 遍历所有边缘点线束
+    for(int i = 0; i < numScansPt; i++)
+    {
+        // 当前一根线上的边缘点数
+        int numAScanPt = scanCloud[i].size();
+        // 遍历当前线束的所有边缘点
+        for(int j = 0; j < numAScanPt; j++)
+        {
+            int areaID = 0;
+            // 当前点的角度
+            float angle = scanCloud[i][j].angle;
+            if(angle > 0 && angle < 2 * M_PI)
+            {
+                areaID = std::floor((angle / (2 * M_PI)) * 120);
+            }
+            else if(angle > 2 * M_PI)
+            {
+                areaID = std::floor(((angle - 2 * M_PI) / (2 * M_PI)) * 120);
+            }
+            else if(angle < 0)
+            {
+                areaID = std::floor(((angle + 2 * M_PI) / (2 * M_PI)) * 120);
+            }
+            // 当前扇形区域存放的点
+            sectorAreaCloud[areaID].push_back(scanCloud[i][j]);
+        }
+    }
+}
+
+float computeClusterMean(vector<PointXYZSCA> &cluster)
+{
+    float distSum = 0;
+    int numPt = cluster.size();
+    for(int i = 0; i < numPt; i++)
+    {
+        // 绝对距离的和
+        distSum += distXY(cluster[i]);
+    }
+    // 平均距离
+    return (distSum/numPt);
+}
+
+void computeXYMean(vector<PointXYZSCA> &cluster, std::pair<float, float> &xyMeans)
+{
+    int numPt = cluster.size();
+    float xSum = 0;
+    float ySum = 0;
+
+    for(int i = 0; i < numPt; i++)
+    {
+        xSum += cluster[i].x;
+        ySum += cluster[i].y;
+    }
+
+    float xMean = xSum/numPt;
+    float yMean = ySum/numPt;
+    xyMeans = std::make_pair(xMean, yMean);
+}
+
+/*
+Kmeans:
+    1.运算前规定K值作为聚类个数
+    2.k个聚类中心需要从所有的数据集合中随机选取
+    3.当聚类中心确定后，每当有一个样本被分配给聚类中心时，各个样本距离哪一个聚类中心近，就划分到那个聚类中心所属的集合
+    4.一共k个集合，重新计算每个集合的聚类中心
+*/
+void getCluster(const ScanEdgePoints &sectorAreaCloud, ScanEdgePoints &clusters)
+{
+    int scanNumTh = ceil(nScans / 6);
+    int ptNumTh = ceil(1.5 * scanNumTh);
+
+    ScanEdgePoints tmpclusters;
+    PointXYZSCA curvPt;
+    // 初始化一个值为curvPt的容器
+    vector<PointXYZSCA> dummy(1, curvPt);
+    // 扇形区域个数
+    int numArea = sectorAreaCloud.size();
+
+    // Cluster for each sector area
+    // 遍历所有扇形区域
+    for(int i = 0; i < numArea; i++)
+    {
+        // 扇形区域的点数要大于6
+        if(sectorAreaCloud[i].size() < 6)
+            continue;
+        int numPt = sectorAreaCloud[i].size();
+        // 二维容器
+        ScanEdgePoints curAreaCluster(1, dummy);
+
+        // 当前扇形的第0个点
+        curAreaCluster[0][0] = sectorAreaCloud[i][0];
+        // 遍历当前扇形区域的所有点（除第0个点外）
+        for(int j = 1; j < numPt; j++)
+        {
+            // 当前扇形经过聚类后点的
+            // 1 2 3 3 3 3 4 5 6 7 8 9 9 10 11 12 13 14 14 15 15 16 17 18 18 18 19 19 20 21 22
+            int numCluster = curAreaCluster.size();
+            /*
+            Kmeans:
+                1.运算前规定K值作为聚类个数
+                2.k个聚类中心需要从所有的数据集合中随机选取
+                3.当聚类中心确定后，每当有一个样本被分配给聚类中心时，各个样本距离哪一个聚类中心近，就划分到那个聚类中心所属的集合
+                4.一共k个集合，重新计算每个集合的聚类中心
+            */
+            // 遍历所有簇，计算中心
+            for(int k = 0; k < numCluster; k++)
+            {
+                // 聚类：不断计算到当前簇的中心点，输入当前扇形，一开始只有一个点，随着后面输入的点越多，均值在不断的变化
+                float mean = computeClusterMean(curAreaCluster[k]);// 绝对平均距离
+                std::pair<float, float> xyMean;
+                computeXYMean(curAreaCluster[k], xyMean);// x、y方向上的平均距离
+                // 当前扇形中的一个角点
+                PointXYZSCA tmpPt = sectorAreaCloud[i][j];
+                // 如果当前点距离中点比较近，则认为是一簇
+                if(abs(distXY(tmpPt) - mean) < distanceTh && abs(xyMean.first - tmpPt.x) < distanceTh && abs(xyMean.second - tmpPt.y) < distanceTh)
+                {
+                    // 加入到同一簇
+                    curAreaCluster[k].emplace_back(tmpPt);
+                    break;
+                }
+                else if(abs(distXY(tmpPt) - mean) >= distanceTh && k == numCluster-1)
+                {
+                    curAreaCluster.emplace_back(dummy);
+                    curAreaCluster[numCluster][0] = tmpPt;
+                }
+                else// 不是满足同一簇条件则跳过
+                {
+                    continue;
+                }
+            }
+        }
+        int numCluster = curAreaCluster.size();
+        // 遍历所有簇
+        for(int j = 0; j < numCluster; j++)
+        {
+            int numPt = curAreaCluster[j].size();
+            // 一簇中的点不能太少
+            if(numPt < ptNumTh)
+            {
+                continue;
+            }
+            tmpclusters.emplace_back(curAreaCluster[j]);
+        }
+    }// end for
+    int numCluster = tmpclusters.size();
+
+    vector<bool> toBeMerge(numCluster, false);
+    multimap<int, int> mToBeMergeInd;
+    set<int> sNeedMergeInd;
+
+    // Merge the neighbor clusters.合并
+    for(int i = 0; i < numCluster; i++)
+    {
+        if(toBeMerge[i])
+        {
+            continue;
+        }
+        // 当前簇的中心点
+        float means1 = computeClusterMean(tmpclusters[i]);
+        std::pair<float, float> xyMeans1;
+        // 当前簇x、y方向均值
+        computeXYMean(tmpclusters[i], xyMeans1);
+        // 遍历相邻簇
+        for(int j = 1; j < numCluster; j++)
+        {
+            if(toBeMerge[j])
+            {
+                continue;
+            }
+            // 相邻簇的中心
+            float means2 = computeClusterMean(tmpclusters[j]);
+            std::pair<float, float> xyMeans2;
+            computeXYMean(tmpclusters[j], xyMeans2);
+            // 如果两个簇太靠近的话
+            if(abs(means1 - means2) < 2*distanceTh
+               && abs(xyMeans1.first - xyMeans2.first) < 2*distanceTh
+               && abs(xyMeans1.second - xyMeans2.second) < 2*distanceTh)
+            {
+                // 第i簇和第j簇要被合并
+                mToBeMergeInd.insert(std::make_pair(i, j));
+                sNeedMergeInd.insert(i);
+                toBeMerge[i] = true;
+                toBeMerge[j] = true;
+            }
+        }
+    }
+
+    if(sNeedMergeInd.empty())// 如果没有要被合并的
+    {
+        for(int i = 0; i < numCluster; i++)
+        {
+            clusters.emplace_back(tmpclusters[i]);
+        }
+    }
+    else
+    {
+        for(int i = 0; i < numCluster; i++)
+        {
+            // 先保存没有被合并的
+            if(toBeMerge[i] == false)
+            {
+                clusters.emplace_back(tmpclusters[i]);
+            }
+        }
+
+        for(auto setIt = sNeedMergeInd.begin(); setIt != sNeedMergeInd.end(); ++setIt)
+        {
+            // 需要合并簇的索引
+            int needMergeInd = *setIt;
+            auto entries = mToBeMergeInd.count(needMergeInd);
+            auto iter = mToBeMergeInd.find(needMergeInd);
+            vector<int> vInd;
+
+            while(entries)
+            {
+                int ind = iter->second;
+                vInd.emplace_back(ind);
+                ++iter;
+                --entries;
+            }
+
+            clusters.emplace_back(tmpclusters[needMergeInd]);
+            size_t numCluster = clusters.size();
+
+            for(size_t j = 0; j < vInd.size(); j++)
+            {
+                for(size_t ptNum = 0; ptNum < tmpclusters[vInd[j]].size(); ptNum++)
+                {
+                    clusters[numCluster - 1].emplace_back(tmpclusters[vInd[j]][ptNum]);
+                }
+            }
+        }
+    }
+}// 聚合
+
+// 获取每一簇的质心点
+void getMeanKeyPoint(const ScanEdgePoints &clusters, pcl::PointCloud<pcl::PointXYZI>& keyPoints)
+{
+    int scanNumTh = ceil(nScans / 6);
+    int ptNumTh = ceil(1.5 * scanNumTh);
+
+    int count = 0;
+    int numCluster = clusters.size();
+    pcl::PointCloud<pcl::PointXYZI> tmpKeyPoints;
+    // <距离, 索引> 每个关键字在map中只能出现一次，map的排序默认按照key从小到大进行排序
+    map<float, int> distanceOrder;
+    // 遍历每一簇
+    for(int i = 0; i < numCluster; i++)
+    {
+        int ptCnt = clusters[i].size();
+        if(ptCnt < ptNumTh)
+        {
+            continue;
+        }
+        vector<PointXYZSCA> tmpCluster;
+        set<int> scans;
+        float x = 0, y = 0, z = 0, intensity = 0;
+        //
+        for(int ptNum = 0; ptNum < ptCnt; ptNum++)
+        {
+            // 当前簇的当前点
+            PointXYZSCA pt = clusters[i][ptNum];
+            int scan = int(pt.scan_position);
+            scans.insert(scan);
+
+            x += pt.x;
+            y += pt.y;
+            z += pt.z;
+            intensity += pt.scan_position;
+        }
+
+        if(scans.size() < (size_t)scanNumTh)
+        {
+            continue;
+        }
+
+        pcl::PointXYZI pt;
+        //当前簇的mean
+        pt.x = x/ptCnt;
+        pt.y = y/ptCnt;
+        pt.z = z/ptCnt;
+        pt.intensity = intensity/ptCnt;
+        // 当前簇均值点到中心的距离
+        float distance = pt.x * pt.x + pt.y * pt.y + pt.z * pt.z;
+
+        auto iter = distanceOrder.find(distance);
+        if(iter != distanceOrder.end())// 找到距离相同的就跳过
+        {
+            // 找到距离相同的就跳过
+            continue;
+        }
+        // 距离表生成
+        distanceOrder[distance] = count;
+        count++;
+        // 储存当前簇的质心点
+        tmpKeyPoints.push_back(pt);
+    }
+
+    for(auto iter = distanceOrder.begin(); iter != distanceOrder.end(); iter++)
+    {
+        int index = (*iter).second;
+        // 取出当前簇的均值点
+        pcl::PointXYZI tmpPt = tmpKeyPoints[index];
+        keyPoints.push_back(tmpPt);
+    }
+
+}
+
+// ---------------------------------- 发布给mapping ----------------------------------------
+void PointCloudToMapping(ros::Time& timestamp_ros)
+{
+    sensor_msgs::PointCloud2 laserCloudCornerLast2;
+    pcl::toROSMsg(cornerPointsLessSharp, laserCloudCornerLast2);
+    laserCloudCornerLast2.header.stamp = timestamp_ros;
+    laserCloudCornerLast2.header.frame_id = "/camera_init";
+    pubLaserCloudCornerLast.publish(laserCloudCornerLast2);
+
+    // 原封不动发布当前平面点
+    sensor_msgs::PointCloud2 laserCloudSurfLast2;
+    pcl::toROSMsg(surfPointsLessFlat, laserCloudSurfLast2);
+    laserCloudSurfLast2.header.stamp = timestamp_ros;
+    laserCloudSurfLast2.header.frame_id = "/camera_init";
+    pubLaserCloudSurfLast.publish(laserCloudSurfLast2);
+
+    // 原封不动的转发当前帧点云，后端优化是低频，高精的，需要更多的点加入，约束越多鲁棒性越好
+    sensor_msgs::PointCloud2 laserCloudFullRes3;
+    pcl::toROSMsg(laserCloud, laserCloudFullRes3);
+    laserCloudFullRes3.header.stamp = timestamp_ros;
+    laserCloudFullRes3.header.frame_id = "/camera_init";
+
+    pubLaserCloudFullRes.publish(laserCloudFullRes3);
+
+    // ------------------------ pub img -----------------
+//    sensor_msgs::ImagePtr img_msg = cv_bridge::CvImage(std_msgs::Header(),"mono8",_curr_images.back() ).toImageMsg();
+//    img_msg->header.stamp = timestamp_ros;
+//    img_msg->header.frame_id = "/camera_init";
+//    pubImage.publish(img_msg);
+
+//    _curr_images.clear();
+    laserCloud.clear();
+    cornerPointsLessSharp.clear();
+    surfPointsLessFlat.clear();
+}
+
+float fRound(float in)
+{
+    float f;
+    int temp = std::round(in * 10);
+    f = temp/10.0;
+
+    return f;
+}
+
+void getDescriptors(pcl::PointCloud<pcl::PointXYZI> &keyPoints,
+                                      cv::Mat &descriptors)
+{
+    if(keyPoints.empty())
+    {
+        return;
+    }
+
+    int ptSize = keyPoints.size();
+
+    descriptors = cv::Mat::zeros(ptSize, 180, CV_32FC1);
+
+    vector<vector<float>> distanceTab;
+    vector<float> oneRowDis(ptSize, 0);
+    distanceTab.resize(ptSize, oneRowDis);
+
+    vector<vector<Eigen::Vector2f>> directionTab;
+    Eigen::Vector2f direct(0, 0);
+    vector<Eigen::Vector2f> oneRowDirect(ptSize, direct);
+    directionTab.resize(ptSize, oneRowDirect);
+
+    //Build distance and direction tables for fast descriptor generation.
+    for(size_t i = 0; i < keyPoints.size(); i++)
+    {
+        for(size_t j = i+1; j < keyPoints.size(); j++)
+        {
+            float dist = distPt2Pt(keyPoints[i], keyPoints[j]);
+            distanceTab[i][j] = fRound(dist);
+            distanceTab[j][i] = distanceTab[i][j];
+
+            Eigen::Vector2f tmpDirection;
+            tmpDirection(0, 0) = keyPoints[j].x - keyPoints[i].x;
+            tmpDirection(1, 0) = keyPoints[j].y - keyPoints[i].y;
+            directionTab[i][j] = tmpDirection;
+            directionTab[j][i] = -tmpDirection;
+        }
+    }
+
+    for(size_t i = 0; i < keyPoints.size(); i++)
+    {
+        vector<float> tempRow(distanceTab[i]);
+        std::sort(tempRow.begin(), tempRow.end());
+        int Index[3];
+
+        //Get the closest three keypoints of current keypoint.
+        for(int k = 0; k < 3; k++)
+        {
+            vector<float>::iterator it1 = find(distanceTab[i].begin(), distanceTab[i].end(), tempRow[k+1]);
+            if(it1 == distanceTab[i].end())
+            {
+                continue;
+            }
+            else
+            {
+                Index[k] = std::distance(distanceTab[i].begin(), it1);
+            }
+        }
+
+        //Generate the descriptor for each closest keypoint.
+        //The final descriptor is based on the priority of the three closest keypoint.
+        for(int indNum = 0; indNum < 3; indNum++)
+        {
+            int index = Index[indNum];
+            Eigen::Vector2f mainDirection;
+            mainDirection = directionTab[i][index];
+
+            vector<vector<float>> areaDis(180);
+            areaDis[0].emplace_back(distanceTab[i][index]);
+
+            for(size_t j = 0; j < keyPoints.size(); j++)
+            {
+                if(j == i || (int)j == index)
+                {
+                    continue;
+                }
+
+                Eigen::Vector2f otherDirection = directionTab[i][j];
+                Eigen::Matrix2f matrixDirect;
+                matrixDirect << mainDirection(0, 0), mainDirection(1, 0), otherDirection(0, 0), otherDirection(1, 0);
+                float deter = matrixDirect.determinant();
+
+                int areaNum = 0;
+                double cosAng = (double)mainDirection.dot(otherDirection) / (double)(mainDirection.norm() * otherDirection.norm());
+                if(abs(cosAng) - 1 > 0)
+                {
+                    continue;
+                }
+
+                float angle = acos(cosAng) * 180 / M_PI;
+
+                if(angle < 0 || angle > 180)
+                {
+                    continue;
+                }
+
+                if(deter > 0)
+                {
+                    areaNum = ceil((angle - 1) / 2);
+                }
+                else
+                {
+                    if(angle - 2 < 0)
+                    {
+                        areaNum = 0;
+                    }
+                    else
+                    {
+                        angle = 360 - angle;
+                        areaNum = ceil((angle - 1) / 2);
+                    }
+                }
+
+                if(areaNum != 0)
+                {
+                    areaDis[areaNum].emplace_back(distanceTab[i][j]);
+                }
+            }
+
+            float *descriptor = descriptors.ptr<float>(i);
+
+            for(int areaNum = 0; areaNum < 180; areaNum++)
+            {
+                if(areaDis[areaNum].size() == 0)
+                {
+                    continue;
+                }
+                else
+                {
+                    std::sort(areaDis[areaNum].begin(), areaDis[areaNum].end());
+
+                    if(descriptor[areaNum] == 0)
+                    {
+                        descriptor[areaNum] = areaDis[areaNum][0];
+                    }
+                }
+            }
+        }
+    }
+}
+
+void match(
+        pcl::PointCloud<pcl::PointXYZI> &curAggregationKeyPt,
+        pcl::PointCloud<pcl::PointXYZI> &toBeMatchedKeyPt,
+        cv::Mat &curDescriptors,
+        cv::Mat &toBeMatchedDescriptors,
+        vector<pair<int, int>> &vMatchedIndex)
+{
+    int curKeypointNum = curAggregationKeyPt.size();
+    int toBeMatchedKeyPtNum = toBeMatchedKeyPt.size();
+
+    multimap<int, int> matchedIndexScore;
+    multimap<int, int> mMatchedIndex;
+    set<int> sIndex;
+
+    for(int i = 0; i < curKeypointNum; i++)
+    {
+        std::pair<int, int> highestIndexScore(0, 0);
+        float* pDes1 = curDescriptors.ptr<float>(i);
+
+        for(int j = 0; j < toBeMatchedKeyPtNum; j++)
+        {
+            int sameDimScore = 0;
+            float* pDes2 = toBeMatchedDescriptors.ptr<float>(j);
+
+            for(int bitNum = 0; bitNum < 180; bitNum++)
+            {
+                if(pDes1[bitNum] != 0 && pDes2[bitNum] != 0 && abs(pDes1[bitNum] - pDes2[bitNum]) <= 0.2)
+                {
+                    sameDimScore += 1;
+                }
+
+                if(bitNum > 90 && sameDimScore < 3){
+                    break;
+                }
+            }
+
+            if(sameDimScore > highestIndexScore.second)
+            {
+                highestIndexScore.first = j;
+                highestIndexScore.second = sameDimScore;
+            }
+        }
+
+        //Used for removing the repeated matches.
+        matchedIndexScore.insert(std::make_pair(i, highestIndexScore.second)); //Record i and its corresponding score.
+        mMatchedIndex.insert(std::make_pair(highestIndexScore.first, i)); //Record the corresponding match between j and i.
+        sIndex.insert(highestIndexScore.first); //Record the index that may be repeated matches.
+    }
+
+    //Remove the repeated matches.
+    for(set<int>::iterator setIt = sIndex.begin(); setIt != sIndex.end(); ++setIt)
+    {
+        int indexJ = *setIt;
+        auto entries = mMatchedIndex.count(indexJ);
+        if(entries == 1)
+        {
+            auto iterI = mMatchedIndex.find(indexJ);
+            auto iterScore = matchedIndexScore.find(iterI->second);
+            if(iterScore->second >= matchTh)
+            {
+                vMatchedIndex.emplace_back(std::make_pair(iterI->second, indexJ));
+            }
+        }
+        else
+        {
+            auto iter1 = mMatchedIndex.find(indexJ);
+            int highestScore = 0;
+            int highestScoreIndex = -1;
+
+            while(entries)
+            {
+                int indexI = iter1->second;
+                auto iterScore = matchedIndexScore.find(indexI);
+                if(iterScore->second > highestScore){
+                    highestScore = iterScore->second;
+                    highestScoreIndex = indexI;
+                }
+                ++iter1;
+                --entries;
+            }
+
+            if(highestScore >= matchTh)
+            {
+                vMatchedIndex.emplace_back(std::make_pair(highestScoreIndex, indexJ));
+            }
+        }
+    }
+}
+
+void Registration(pcl::PointCloud<pcl::PointXYZI> &keyPoints_curr, pcl::PointCloud<pcl::PointXYZI> &keyPoints_last,
+        vector<pair<int, int>> &vMatchedIndex, ros::Time &timestamp_ros)
+{
+
+    vector<cv::Point3f> pts1, pts2;
+    for(int i = 0; i < vMatchedIndex.size(); i++)
+    {
+        cv::Point3f point_curr, point_last;
+        point_curr.x = keyPoints_curr[vMatchedIndex[i].first].x;
+        point_curr.y = keyPoints_curr[vMatchedIndex[i].first].y;
+        point_curr.z = keyPoints_curr[vMatchedIndex[i].first].z;
+
+        point_last.x = keyPoints_last[vMatchedIndex[i].second].x;
+        point_last.y = keyPoints_last[vMatchedIndex[i].second].y;
+        point_last.z = keyPoints_last[vMatchedIndex[i].second].z;
+        pts2.push_back(point_curr);
+        pts1.push_back(point_last);
+
+    }
+    
+    // -------------------------------------------------------------------------------
+    // clock_t start, end;
+    // double time;
+    // start = clock();
+    static double T_curr2last[6] = {0,0,0,0,0,0};
+
+    //cout << "T_curr2last = " << T_curr2last[0]<< T_curr2last[1]<<T_curr2last[2]<< T_curr2last[3] <<T_curr2last[4] << endl;
+    ceres::Problem problem;
+    for (int i = 0; i < pts1.size(); ++i)
+    {
+        ceres::CostFunction* cost_function =
+                ICPCeres::Create(pts2[i], pts1[i]);
+        // 剔除外点
+        ceres::LossFunction *loss_function = new ceres::HuberLoss(0.1);
+        problem.AddResidualBlock(cost_function,
+                                 loss_function,
+                                 T_curr2last);
+    }
+
+    ceres::Solver::Options options;
+    options.max_num_iterations = 4;
+    options.linear_solver_type = ceres::DENSE_SCHUR;
+    options.minimizer_progress_to_stdout = false;
+    ceres::Solver::Summary summary;
+    ceres::Solve(options, &problem, &summary);
+
+    Mat R_vec = (Mat_<double>(3,1) << T_curr2last[0], T_curr2last[1], T_curr2last[2]);
+    Mat R_cvest;
+    // 罗德里格斯公式，旋转向量转旋转矩阵
+    cv::Rodrigues(R_vec, R_cvest);
+    Eigen::Matrix<double,3,3> R_est;
+    cv::cv2eigen(R_cvest, R_est);
+    Eigen::Quaterniond q(R_est.inverse());
+    q.normalize();
+    q_last_curr = q;
+    //cout << "q = \n" << q.x() << " " << q.y() << " " << q.z() << " " << q.w()<< endl;
+    //cout << -T_curr2last[3] << " " <<  -T_curr2last[4] << " " << -T_curr2last[5] << endl;
+    //cout<<"R_est="<<R_est<<endl;
+    Eigen::Vector3d t_est(T_curr2last[3], T_curr2last[4], T_curr2last[5]);
+    t_last_curr = -t_est;
+    //cout<<"t_est="<<t_est<<endl;
+    Eigen::Isometry3d T(R_est);//构造变换矩阵与输出
+    T.pretranslate(t_est);
+    //cout << "T = \n" << T.matrix().inverse()<<endl;
+    t_w_curr = t_w_curr + q_w_curr * t_last_curr;
+    q_w_curr = q_w_curr * q_last_curr;
+
+    // publish odometry
+    nav_msgs::Odometry laserOdometry;
+    laserOdometry.header.frame_id = "/camera_init";
+    laserOdometry.child_frame_id = "/laser_odom";
+    laserOdometry.header.stamp = timestamp_ros;
+    laserOdometry.pose.pose.orientation.x = q_w_curr.x();
+    laserOdometry.pose.pose.orientation.y = q_w_curr.y();
+    laserOdometry.pose.pose.orientation.z = q_w_curr.z();
+    laserOdometry.pose.pose.orientation.w = q_w_curr.w();
+    laserOdometry.pose.pose.position.x = t_w_curr.x();
+    laserOdometry.pose.pose.position.y = t_w_curr.y();
+    laserOdometry.pose.pose.position.z = t_w_curr.z();
+    pubLaserOdometry.publish(laserOdometry);
+    geometry_msgs::PoseStamped laserPose;
+    laserPose.header = laserOdometry.header;
+    laserPose.pose = laserOdometry.pose.pose;
+    laserPath.header.stamp = laserOdometry.header.stamp;
+    laserPath.poses.push_back(laserPose);
+    laserPath.header.frame_id = "/camera_init";
+    pubLaserPath.publish(laserPath);
+
+    sensor_msgs::PointCloud2 center_msg;
+    pcl::toROSMsg(keyPoints_curr, center_msg);
+    center_msg.header.stamp = timestamp_ros;
+    center_msg.header.frame_id = "/camera_init";
+    pubCenter.publish(center_msg);
+
+    PointCloudToMapping(timestamp_ros);
+}
+
 //LiDAR点云回调函数
 void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
 {
@@ -648,18 +1285,17 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
 
     //取当前原始点云帧的时间戳
     ros::Time timestamp = laserCloudMsg->header.stamp;
-    // 边缘点
-    ScanEdgePoints edgePoints;
+
     // 1. 提取当前帧的边缘点，根据线束储存边缘点
+    ScanEdgePoints edgePoints;
     extractEdgePoint(laserCloudMsg, edgePoints);
 
-    pcl::PointCloud<pcl::PointXYZ> clusters_Cloud;
-    ScanEdgePoints sectorAreaCloud;
     // 2.1 输入边缘点，输出3D扇形区域点，根据扇区储存边缘点
+    ScanEdgePoints sectorAreaCloud;
     divideArea(edgePoints, sectorAreaCloud);
-    ScanEdgePoints clusters;
 
     // 2.2 输入扇形区域点，输出聚合点 ，大容器：所有簇，小容器：一簇的所有点
+    ScanEdgePoints clusters;
     getCluster(sectorAreaCloud, clusters);
 
     // 2.3 计算所有簇的质心
@@ -667,6 +1303,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
 
     // 3. 创建描述子
     getDescriptors(keyPoints_curr, descriptors_curr);
+
     if(!keyPoints_last.empty())
     {
         vector<pair<int, int>> vMatchedIndex;
@@ -716,320 +1353,22 @@ int main(int argc, char **argv)
         return 0;
     }
     // ------------------------ 输入 ---------------------
-    // 订阅极大边线点，并传入回调函数中处理，消息队列的长度为100
-    ros::Subscriber subCornerPointsSharp = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_sharp", 100, laserCloudSharpHandler);
-    // 订阅次极大边线点
-    ros::Subscriber subCornerPointsLessSharp = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_less_sharp", 100, laserCloudLessSharpHandler);
-    // 订阅极小平面点
-    ros::Subscriber subSurfPointsFlat = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_flat", 100, laserCloudFlatHandler);
-    // 订阅次极小平面点
-    ros::Subscriber subSurfPointsLessFlat = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_less_flat", 100, laserCloudLessFlatHandler);
-    // 当前点云 去除nan点后未作任何处理
-    ros::Subscriber subLaserCloudFullRes = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_cloud_2", 100, laserCloudFullResHandler);
-
-    // //link3d
-    // ros::Subscriber subLaserCloudLink3d_odom = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_LinK3D", 100, laserCloudLink3d_odomHandler);
-
+    //订阅LiDAR点云 本节点处理函数均在此回调函数中
+    ros::Subscriber subLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points", 100, laserCloudHandler);
     // ------------------------ 输出 ---------------------
+    image_transport::ImageTransport it(nh);
+    pubImage = it.advertise("/image_centroid", 100);
     // 发布给mapping模块
+    ros::Publisher pubLaserCloudFullRes = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_cloud_full", 100);
     ros::Publisher pubLaserCloudCornerLast = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_corner_last", 100);
     ros::Publisher pubLaserCloudSurfLast = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_surf_last", 100);
-    ros::Publisher pubLaserCloudFullRes = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_cloud_full", 100);
     // 发布里程计数据(位姿轨迹)给后端，后端接收 当前帧到初始帧的位姿
     ros::Publisher pubLaserOdometry = nh.advertise<nav_msgs::Odometry>("/laser_odom_to_init", 100);
     // 发布前端里程计的高频低精 位姿轨迹
     ros::Publisher pubLaserPath = nh.advertise<nav_msgs::Path>("/laser_odom_path", 100);
     //LinK3D 聚类关键点发布
-    ros::Publisher pubLaserCloud_LinK3D = nh.advertise<sensor_msgs::PointCloud2>("/odomLink3d_cloud", 100);
-    //订阅LiDAR点云 本节点处理函数均在此回调函数中
-    ros::Subscriber subLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points", 100, laserCloudHandler);
-    
+    pubCenter = nh.advertise<sensor_msgs::PointCloud2>("/center", 100);
+
     ros::spin();
     return 0;
 }
-
-
-   //保存上一帧的 link3d Frame用于帧间匹配
-    Frame* pPreviousFrame = nullptr;
-    //存当前点云中的聚类后的关键点
-    pcl::PointCloud<pcl::PointXYZI>::Ptr AggregationKeypoints_LinK3D(new pcl::PointCloud<pcl::PointXYZI>);
-    // //link3d
-    // ros::Publisher pubLaserCloudLink3d_odom = nh.advertise<sensor_msgs::PointCloud2>("/odomLink3d_cloud", 100);
-
-   
-
-    nav_msgs::Path laserPath;
-
-
-    int frameCount = 0;
-    // 高频低精 100hz ， 最好处理一帧需要10毫秒
-    ros::Rate rate(100);
-    
-    // 不断循环直到ctrl c
-    while (ros::ok())
-    {
-        /*
-        ros::spin() 和 ros::spinOnce() 区别及详解:
-            其实看函数名也能理解个差不多，一个是一直调用回调函数；
-            ros::spin() 在调用后不会再返回，也就是你的主程序到这儿就不往下执行了。
-            另一个是只调用一次回调函数，如果还想再调用，就需要加上循环了，后者在调用后还可以继续执行之后的程序
-
-        Subscriber每接收到一个消息(一帧)，就会触发一次spinOnce，其滴调用回调函数
-        如果spinOnce下面的代码没有执行完，就不会触发下一次回调，就不会丢帧
-
-        对于有些传输特别快的消息，尤其需要注意合理控制消息池大小和ros::spinOnce()执行频率; 
-        比如消息送达频率为10Hz, ros::spinOnce()的调用回调函数频率为5Hz，那么消息池的大小就一定要大于2，才能保证数据不丢失，无延迟。
-        */
-        // 每调用一次回调函数就执行以下代码一次
-        ros::spinOnce();// 如果改为ros::spin则下面的代码就不会被执行
-
-        // 确保订阅的五个消息队列(五种点云)都有，有一个队列为空都不行
-        if (!cornerSharpBuf.empty() && !cornerLessSharpBuf.empty() &&
-            !surfFlatBuf.empty() && !surfLessFlatBuf.empty() && !fullPointsBuf.empty())
-        {
-            // 取出每一个队列最早的时间戳
-            timeCornerPointsSharp = cornerSharpBuf.front()->header.stamp.toSec();
-            timeCornerPointsLessSharp = cornerLessSharpBuf.front()->header.stamp.toSec();
-            timeSurfPointsFlat = surfFlatBuf.front()->header.stamp.toSec();
-            timeSurfPointsLessFlat = surfLessFlatBuf.front()->header.stamp.toSec();
-            timeLaserCloudFullRes = fullPointsBuf.front()->header.stamp.toSec();
-
-            // //link3d
-            // timeLaserCloudLink3d_odom = odom_link3dPointsBuf.front()->header.stamp.toSec();
-
-            // 判断是否是同一帧，同一帧的时间戳相同
-            if (timeCornerPointsSharp != timeLaserCloudFullRes ||
-                timeCornerPointsLessSharp != timeLaserCloudFullRes ||
-                timeSurfPointsFlat != timeLaserCloudFullRes ||
-                timeSurfPointsLessFlat != timeLaserCloudFullRes)
-            {
-                printf("unsync messeage!");
-                ROS_BREAK();
-            }
-
-            mBuf.lock();
-            // 每次进来前，都要记得清除
-            cornerPointsSharp->clear();
-            pcl::fromROSMsg(*cornerSharpBuf.front(), *cornerPointsSharp);
-            // 用完即丢
-            cornerSharpBuf.pop();
-            // 清除上一帧
-            cornerPointsLessSharp->clear();
-            pcl::fromROSMsg(*cornerLessSharpBuf.front(), *cornerPointsLessSharp);
-            cornerLessSharpBuf.pop();
-
-            surfPointsFlat->clear();
-            pcl::fromROSMsg(*surfFlatBuf.front(), *surfPointsFlat);
-            surfFlatBuf.pop();
-
-            surfPointsLessFlat->clear();
-            pcl::fromROSMsg(*surfLessFlatBuf.front(), *surfPointsLessFlat);
-            surfLessFlatBuf.pop();
-
-            laserCloudFullRes->clear();
-            pcl::fromROSMsg(*fullPointsBuf.front(), *laserCloudFullRes);
-            //link3d 把当前帧点云单独存一个用作link3d处理
-            pcl::fromROSMsg(*fullPointsBuf.front(), *plaserCloudIn_LinK3D);
-            fullPointsBuf.pop();
-
-            //这个锁很关键
-            mBuf.unlock();
-
-            TicToc t_whole;
-            // initializing，第一帧，这个条件语句后面会把当前帧点云存到上一帧点云，并创建KDtree
-            if (!systemInited)
-            {
-                // link3d 去除近距离点云
-                removeClosedPointCloud(*plaserCloudIn_LinK3D, *plaserCloudIn_LinK3D, 0.1);
-                // link3d 提取器
-                BoW3D::LinK3D_Extractor* pLinK3dExtractor(new BoW3D::LinK3D_Extractor(nScans, scanPeriod_LinK3D, minimumRange, distanceTh, matchTh)); 
-                //第一帧直接赋值给pPreviousFrame
-                pPreviousFrame = new Frame(pLinK3dExtractor, plaserCloudIn_LinK3D);
-                systemInited = true;
-                std::cout << "Initialization finished \n";
-            }
-            else// 第二帧之后进来
-            {
-                // ----------------------- 雷达里程计 -------------------------
-                // 当前帧中，极大边线点的个数
-                int cornerPointsSharpNum = cornerPointsSharp->points.size();
-                // 当前帧中，极小平面点的个数
-                int surfPointsFlatNum = surfPointsFlat->points.size();
-                // 计算优化的时间
-                TicToc t_opt;
-                // 把当前帧明显的角点与面点，与上一帧所有的角点与面点进行比较，建立约束
-                // 点到线以及点到面的非线性优化，迭代2次（选择当前优化位姿的特征点匹配，并优化位姿（4次迭代），然后重新选择特征点匹配并优化）
-
-                //link3d 这里需要开始进行修改，利用link3d提取的关键点（质心）进行帧间ICP匹配，仅优化位姿
-                // LinK3D
-                removeClosedPointCloud(*plaserCloudIn_LinK3D, *plaserCloudIn_LinK3D, 0.1);
-                //在这里植入LinK3D，把接收到的点云数据用LinK3D提取边缘点和描述子，发布关键点数据，打印输出描述子
-                //LinK3D提取器
-                BoW3D::LinK3D_Extractor* pLinK3dExtractor(new BoW3D::LinK3D_Extractor(nScans, scanPeriod_LinK3D, minimumRange, distanceTh, matchTh)); 
-                //创建点云帧,该函数中利用LinK3D仿函数执行了提取边缘点，聚类，计算描述子的操作
-                Frame* pCurrentFrame_LinK3D(new Frame(pLinK3dExtractor, plaserCloudIn_LinK3D));
-                //此时pCurrentFrame_LinK3D这个类指针中包含了边缘点，聚类，描述子的信息
-        //测试 输出关键点数量和第一个关键点信息 正常输出 
-        // cout << "------------------------" << endl << "关键点数量:" << pCurrentFrame_LinK3D->mvAggregationKeypoints.size();
-        // cout << "第一个关键点信息x坐标" << pCurrentFrame_LinK3D->mvAggregationKeypoints[0].x;
-                //存当前点云中的聚类后的关键点
-                AggregationKeypoints_LinK3D->points.insert(AggregationKeypoints_LinK3D->points.end(), pCurrentFrame_LinK3D->mvAggregationKeypoints.begin(), pCurrentFrame_LinK3D->mvAggregationKeypoints.end());
-        //测试 输出点云中信息 也能正常输出
-        // cout << "------------------------" << endl << "关键点数量:" << AggregationKeypoints_LinK3D->points.size();
-        // cout << "第一个关键点信息x坐标" << AggregationKeypoints_LinK3D->points[0].x;
-                // 2.对描述子进行匹配 3.使用匹配对进行帧间icp配准 pPreviousFrame是上一个link3d Frame帧 pCurrentFrame_LinK3D是当前link3d Frame帧
-                // 获取上一帧和当前帧之间的匹配索引
-                 vector<pair<int, int>> vMatchedIndex;  
-                pLinK3dExtractor->match(pCurrentFrame_LinK3D->mvAggregationKeypoints, pPreviousFrame->mvAggregationKeypoints, pCurrentFrame_LinK3D->mDescriptors, pPreviousFrame->mDescriptors, vMatchedIndex);
-                //仿照BoW3D函数写一个帧间ICP匹配函数求出R,t
-                int returnValue = 0;
-                // 进行帧间ICP匹配 求当前帧到上一帧的位姿变换
-                // 这里求的R t是当前帧点云到上一帧点云的位姿变换
-                returnValue = pose_estimation_3d3d(pCurrentFrame_LinK3D, pPreviousFrame, vMatchedIndex, RelativeR, Relativet, pLinK3dExtractor);
-                //至此获得了当前帧点云到上一帧点云的位姿变换
-
-                //当前帧Frame用完以后，赋值给上一帧Frame,赋值前先把要丢掉的帧内存释放
-                //这里Frame里有成员指针，析构函数里delete成员指针
-                delete pPreviousFrame;
-                pPreviousFrame = pCurrentFrame_LinK3D;
-                //LinK3D 植入结束
-
-                //这里改为用link3d关键点优化的帧间位姿赋值
-                //帧间匹配的位姿转换成四元数/
-                q_last_curr = Eigen::Quaterniond(RelativeR);
-                t_last_curr = Relativet;
-                //更新当前帧到世界系变换
-                t_w_curr = t_w_curr + q_w_curr * t_last_curr;
-                q_w_curr = q_w_curr * q_last_curr;
-            }
-
-            TicToc t_pub;//计算发布运行时间
-            // 发布lidar里程计结果
-            // publish odometry
-            // 创建nav_msgs::Odometry消息类型，把信息导入，并发布
-            nav_msgs::Odometry laserOdometry;
-            laserOdometry.header.frame_id = "camera_init";
-            laserOdometry.child_frame_id = "/laser_odom";
-            laserOdometry.header.stamp = ros::Time().fromSec(timeSurfPointsLessFlat);
-            // 以四元数和平移向量发出去，第一帧的时候发布 T = [I|0]
-            laserOdometry.pose.pose.orientation.x = q_w_curr.x();
-            laserOdometry.pose.pose.orientation.y = q_w_curr.y();
-            laserOdometry.pose.pose.orientation.z = q_w_curr.z();
-            laserOdometry.pose.pose.orientation.w = q_w_curr.w();
-            laserOdometry.pose.pose.position.x = t_w_curr.x();
-            laserOdometry.pose.pose.position.y = t_w_curr.y();
-            laserOdometry.pose.pose.position.z = t_w_curr.z();
-            // 发布里程计数据(位姿轨迹)，后端接收
-            pubLaserOdometry.publish(laserOdometry);
-
-            geometry_msgs::PoseStamped laserPose;
-            laserPose.header = laserOdometry.header;
-            laserPose.pose = laserOdometry.pose.pose;
-            laserPath.header.stamp = laserOdometry.header.stamp;
-            // 位姿容器，即轨迹
-            laserPath.poses.push_back(laserPose);
-            laserPath.header.frame_id = "camera_init";
-            // 发布位姿轨迹可视化
-            pubLaserPath.publish(laserPath);
-
-            // transform corner features and plane features to the scan end point
-            if (0)//去畸变，没有调用
-            {
-                int cornerPointsLessSharpNum = cornerPointsLessSharp->points.size();
-                for (int i = 0; i < cornerPointsLessSharpNum; i++)
-                {
-                    TransformToEnd(&cornerPointsLessSharp->points[i], &cornerPointsLessSharp->points[i]);
-                }
-
-                int surfPointsLessFlatNum = surfPointsLessFlat->points.size();
-                for (int i = 0; i < surfPointsLessFlatNum; i++)
-                {
-                    TransformToEnd(&surfPointsLessFlat->points[i], &surfPointsLessFlat->points[i]);
-                }
-
-                int laserCloudFullResNum = laserCloudFullRes->points.size();
-                for (int i = 0; i < laserCloudFullResNum; i++)
-                {
-                    TransformToEnd(&laserCloudFullRes->points[i], &laserCloudFullRes->points[i]);
-                }
-            }
-            
-            // 位姿估计完毕之后，当前边线点和平面点就变成了上一帧的边线点和平面点，把索引和数量都转移过去
-            // curr 存一下当前帧的指针
-            //利用一个临时点云指针把当前从配准端接收到的次边缘点和次平面点分别与上一帧边缘点和平面点指针互换
-            //? 这里应该是为了下次匹配的时候有更多的点进行匹配好做帧间匹配吧
-            pcl::PointCloud<PointType>::Ptr laserCloudTemp = cornerPointsLessSharp;
-            // curr --> last 当前帧指向上一帧
-            cornerPointsLessSharp = laserCloudCornerLast;
-            // last -> curr
-            laserCloudCornerLast = laserCloudTemp;
-
-            // 平面点 curr
-            laserCloudTemp = surfPointsLessFlat;
-            // curr --> last
-            surfPointsLessFlat = laserCloudSurfLast;
-            // last -> curr
-            laserCloudSurfLast = laserCloudTemp;
-
-            laserCloudCornerLastNum = laserCloudCornerLast->points.size();
-            laserCloudSurfLastNum = laserCloudSurfLast->points.size();
-
-            // std::cout << "the size of corner last is " << laserCloudCornerLastNum << ", and the size of surf last is " << laserCloudSurfLastNum << '\n';
-            // kdtree设置当前帧，用来下一帧lidar odom使用，把当前帧点云送到KD树，用来下一帧的匹配
-            // 向KDTREE中传入数据，即将点云数据设置成KD-Tree结构
-            kdtreeCornerLast->setInputCloud(laserCloudCornerLast);
-            kdtreeSurfLast->setInputCloud(laserCloudSurfLast);
-
-            // 控制后端节点的执行频率，降频后给后端发送，只有整除时才发布结果
-            // 每隔skipFrameNum帧，往后端发送一帧，如果算力不够skipFrameNum就要增大
-            if (frameCount % skipFrameNum == 0)// 0除以1，当然是商0，且余数也是0
-            {
-                frameCount = 0;
-                //此时当前帧边缘点 平面点已经存入last指针里了
-                // 原封不动发布当前角点
-                sensor_msgs::PointCloud2 laserCloudCornerLast2;
-                pcl::toROSMsg(*laserCloudCornerLast, laserCloudCornerLast2);
-                laserCloudCornerLast2.header.stamp = ros::Time().fromSec(timeSurfPointsLessFlat);
-                laserCloudCornerLast2.header.frame_id = "/camera";
-                pubLaserCloudCornerLast.publish(laserCloudCornerLast2);
-                
-                // 原封不动发布当前平面点
-                sensor_msgs::PointCloud2 laserCloudSurfLast2;
-                pcl::toROSMsg(*laserCloudSurfLast, laserCloudSurfLast2);
-                laserCloudSurfLast2.header.stamp = ros::Time().fromSec(timeSurfPointsLessFlat);
-                laserCloudSurfLast2.header.frame_id = "/camera";
-                pubLaserCloudSurfLast.publish(laserCloudSurfLast2);
-                
-                // 原封不动的转发当前帧点云，后端优化是低频，高精的，需要更多的点加入，约束越多鲁棒性越好
-                sensor_msgs::PointCloud2 laserCloudFullRes3;
-                pcl::toROSMsg(*laserCloudFullRes, laserCloudFullRes3);
-                laserCloudFullRes3.header.stamp = ros::Time().fromSec(timeSurfPointsLessFlat);
-                laserCloudFullRes3.header.frame_id = "/camera";
-                pubLaserCloudFullRes.publish(laserCloudFullRes3);
-
-
-                //LinK3D 关键点云发布 laserCLoud要换成关键点云
-                sensor_msgs::PointCloud2 laserCloud_LinK3D;
-                pcl::toROSMsg(*AggregationKeypoints_LinK3D, laserCloud_LinK3D);
-                laserCloud_LinK3D.header.stamp = ros::Time().fromSec(timeSurfPointsLessFlat);
-                laserCloud_LinK3D.header.frame_id = "/camera";
-                pubLaserCloud_LinK3D.publish(laserCloud_LinK3D);// 发布当前帧点云
-                //用完清空 释放原来的对象，指向新的对象
-                plaserCloudIn_LinK3D.reset(new pcl::PointCloud<pcl::PointXYZ>);
-                //AggregationKeypoints_LinK3D需要手动清空
-                AggregationKeypoints_LinK3D.reset(new pcl::PointCloud<pcl::PointXYZI>);
-            }
-            printf("publication time %f ms \n", t_pub.toc());
-            printf("whole laserOdometry time %f ms \n \n", t_whole.toc());
-            
-            // 若处理时间，大于bag发布的频率，则来不及处理
-            // notice: 里程计超过100ms，即小于10hz则有问题(超过理想范围的10倍)，算力不够 ??
-            if(t_whole.toc() > 100)
-                ROS_WARN("odometry process over 100ms");
-
-            frameCount++;
-        }
-        // 处理一帧的时间最好小于等于 0.01s
-        // 每秒执行100次，所以执行一次是0.01s；而如果执行完小于0.01s，就sleep一下，直到0.01s再继续走
-        rate.sleep();
-    }

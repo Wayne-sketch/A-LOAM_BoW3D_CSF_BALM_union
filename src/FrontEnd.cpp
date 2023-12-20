@@ -27,6 +27,8 @@
 #include <opencv2/imgproc/types_c.h>
 
 #include <opencv2/core.hpp>
+#include <opencv2/calib3d/calib3d.hpp>
+
 #include <chrono>
 #include <image_transport/image_transport.h>
 #include <cv_bridge/cv_bridge.h>
@@ -102,7 +104,7 @@ ros::Publisher pubLaserCloudSurfLast;
 ros::Publisher pubLaserCloudFullRes;
 ros::Publisher pubLaserOdometry;
 ros::Publisher pubLaserPath;
-image_transport::Publisher pubImage;
+// image_transport::Publisher pubImage;
 nav_msgs::Path laserPath;
 ros::Publisher pubCenter;
 
@@ -901,21 +903,21 @@ void PointCloudToMapping(ros::Time& timestamp_ros)
     sensor_msgs::PointCloud2 laserCloudCornerLast2;
     pcl::toROSMsg(cornerPointsLessSharp, laserCloudCornerLast2);
     laserCloudCornerLast2.header.stamp = timestamp_ros;
-    laserCloudCornerLast2.header.frame_id = "/camera_init";
+    laserCloudCornerLast2.header.frame_id = "camera_init";
     pubLaserCloudCornerLast.publish(laserCloudCornerLast2);
 
     // 原封不动发布当前平面点
     sensor_msgs::PointCloud2 laserCloudSurfLast2;
     pcl::toROSMsg(surfPointsLessFlat, laserCloudSurfLast2);
     laserCloudSurfLast2.header.stamp = timestamp_ros;
-    laserCloudSurfLast2.header.frame_id = "/camera_init";
+    laserCloudSurfLast2.header.frame_id = "camera_init";
     pubLaserCloudSurfLast.publish(laserCloudSurfLast2);
 
     // 原封不动的转发当前帧点云，后端优化是低频，高精的，需要更多的点加入，约束越多鲁棒性越好
     sensor_msgs::PointCloud2 laserCloudFullRes3;
     pcl::toROSMsg(laserCloud, laserCloudFullRes3);
     laserCloudFullRes3.header.stamp = timestamp_ros;
-    laserCloudFullRes3.header.frame_id = "/camera_init";
+    laserCloudFullRes3.header.frame_id = "camera_init";
 
     pubLaserCloudFullRes.publish(laserCloudFullRes3);
 
@@ -1240,7 +1242,7 @@ void Registration(pcl::PointCloud<pcl::PointXYZI> &keyPoints_curr, pcl::PointClo
 
     // publish odometry
     nav_msgs::Odometry laserOdometry;
-    laserOdometry.header.frame_id = "/camera_init";
+    laserOdometry.header.frame_id = "camera_init";
     laserOdometry.child_frame_id = "/laser_odom";
     laserOdometry.header.stamp = timestamp_ros;
     laserOdometry.pose.pose.orientation.x = q_w_curr.x();
@@ -1256,13 +1258,13 @@ void Registration(pcl::PointCloud<pcl::PointXYZI> &keyPoints_curr, pcl::PointClo
     laserPose.pose = laserOdometry.pose.pose;
     laserPath.header.stamp = laserOdometry.header.stamp;
     laserPath.poses.push_back(laserPose);
-    laserPath.header.frame_id = "/camera_init";
+    laserPath.header.frame_id = "camera_init";
     pubLaserPath.publish(laserPath);
 
     sensor_msgs::PointCloud2 center_msg;
     pcl::toROSMsg(keyPoints_curr, center_msg);
     center_msg.header.stamp = timestamp_ros;
-    center_msg.header.frame_id = "/camera_init";
+    center_msg.header.frame_id = "camera_init";
     pubCenter.publish(center_msg);
 
     PointCloudToMapping(timestamp_ros);
@@ -1277,18 +1279,17 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     static bool init = false;
 
     ros::Time timestamp = laserCloudMsg->header.stamp;
-    // 边缘点
-    ScanEdgePoints edgePoints;
+
     // 1. 提取当前帧的边缘点，根据线束储存边缘点
+    ScanEdgePoints edgePoints;
     extractEdgePoint(laserCloudMsg, edgePoints);
 
-    pcl::PointCloud<pcl::PointXYZ> clusters_Cloud;
-    ScanEdgePoints sectorAreaCloud;
     // 2.1 输入边缘点，输出3D扇形区域点，根据扇区储存边缘点
+    ScanEdgePoints sectorAreaCloud;
     divideArea(edgePoints, sectorAreaCloud);
-    ScanEdgePoints clusters;
 
     // 2.2 输入扇形区域点，输出聚合点 ，大容器：所有簇，小容器：一簇的所有点
+    ScanEdgePoints clusters;
     getCluster(sectorAreaCloud, clusters);
 
     // 2.3 计算所有簇的质心
@@ -1296,6 +1297,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
 
     // 3. 创建描述子
     getDescriptors(keyPoints_curr, descriptors_curr);
+
     if(!keyPoints_last.empty())
     {
         vector<pair<int, int>> vMatchedIndex;
@@ -1342,8 +1344,8 @@ int main(int argc, char** argv)
         printf("only support velodyne with 16, 32 , 64 or RS80 scan line!");
         return 0;
     }
-    image_transport::ImageTransport it(nh);
-    pubImage = it.advertise("/image_centroid", 100);
+    // image_transport::ImageTransport it(nh);
+    // pubImage = it.advertise("/image_centroid", 100);
     pubLaserCloudFullRes = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_cloud_full", 100);
     pubLaserCloudCornerLast = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_corner_last", 100);
     pubLaserCloudSurfLast = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_surf_last", 100);

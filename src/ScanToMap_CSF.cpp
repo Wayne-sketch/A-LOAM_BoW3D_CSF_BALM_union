@@ -1,39 +1,3 @@
-// This is an advanced implementation of the algorithm described in the following paper:
-//   J. Zhang and S. Singh. LOAM: Lidar Odometry and Mapping in Real-time.
-//     Robotics: Science and Systems Conference (RSS). Berkeley, CA, July 2014.
-
-// Modifier: Tong Qin               qintonguav@gmail.com
-// 	         Shaozu Cao 		    saozu.cao@connect.ust.hk
-
-
-// Copyright 2013, Ji Zhang, Carnegie Mellon University
-// Further contributions copyright (c) 2016, Southwest Research Institute
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright notice,
-//    this list of conditions and the following disclaimer in the documentation
-//    and/or other materials provided with the distribution.
-// 3. Neither the name of the copyright holder nor the names of its
-//    contributors may be used to endorse or promote products derived from this
-//    software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-// POSSIBILITY OF SUCH DAMAGE.
-
 #include <math.h>
 #include <vector>
 #include <nav_msgs/Odometry.h>
@@ -71,7 +35,6 @@
 #include "CSF/CSF.h"
 using namespace std;
 
-
 int frameCount = 0;
 
 double timeLaserCloudCornerLast = 0;
@@ -81,7 +44,6 @@ double timeLaserOdometry = 0;
 double timecenter = 0;
 double timeimage = 0;
 
-
 int laserCloudCenWidth = 10;
 int laserCloudCenHeight = 10;
 int laserCloudCenDepth = 5;
@@ -89,10 +51,7 @@ const int laserCloudWidth = 21;
 const int laserCloudHeight = 21;
 const int laserCloudDepth = 11;
 
-
 ofstream os_pose;
-
-
 
 const int laserCloudNum = laserCloudWidth * laserCloudHeight * laserCloudDepth; //4851
 
@@ -113,20 +72,16 @@ pcl::PointCloud<PointType>::Ptr laserCloudCornerFromMap(new pcl::PointCloud<Poin
 pcl::PointCloud<PointType>::Ptr laserCloudSurfFromMap(new pcl::PointCloud<PointType>());
 pcl::PointCloud<PointType>::Ptr centerFromMap(new pcl::PointCloud<PointType>());
 
-
 //input & output: points in one frame. local --> global
 pcl::PointCloud<PointType>::Ptr laserCloudFullRes(new pcl::PointCloud<PointType>());
 
 // points in every cube
 pcl::PointCloud<PointType>::Ptr laserCloudCornerArray[laserCloudNum];
 
-
-
 //kd-tree
 pcl::KdTreeFLANN<PointType>::Ptr kdtreeCornerFromMap(new pcl::KdTreeFLANN<PointType>());
 pcl::KdTreeFLANN<PointType>::Ptr kdtreeSurfFromMap(new pcl::KdTreeFLANN<PointType>());
 pcl::KdTreeFLANN<PointType>::Ptr kdtreeCenterFromMap(new pcl::KdTreeFLANN<PointType>());
-
 
 // 点云特征匹配时的优化变量
 double parameters[7] = {0, 0, 0, 1, 0, 0, 0};
@@ -151,15 +106,12 @@ Eigen::Vector3d t_wmap_wodom(0, 0, 0);
 Eigen::Quaterniond q_wodom_curr(1, 0, 0, 0);
 Eigen::Vector3d t_wodom_curr(0, 0, 0);
 
-
 std::queue<sensor_msgs::PointCloud2ConstPtr> cornerLastBuf;
 std::queue<sensor_msgs::PointCloud2ConstPtr> surfLastBuf;
 std::queue<sensor_msgs::PointCloud2ConstPtr> fullResBuf;
 std::queue<nav_msgs::Odometry::ConstPtr> odometryBuf;
 std::queue<sensor_msgs::PointCloud2ConstPtr> centerBuf;
 // std::queue<sensor_msgs::ImageConstPtr> imageBuf;
-
-
 
 std::mutex mBuf;
 
@@ -177,7 +129,6 @@ ros::Publisher pubGround;
 ros::Publisher pubEdge;
 
 image_transport::Publisher pubImgae;
-
 
 nav_msgs::Path laserAfterMappedPath;
 
@@ -288,8 +239,8 @@ void laserOdometryHandler(const nav_msgs::Odometry::ConstPtr &laserOdometry)
     Eigen::Vector3d t_w_curr = q_wmap_wodom * t_wodom_curr + t_wmap_wodom;
 
     nav_msgs::Odometry odomAftMapped;
-    odomAftMapped.header.frame_id = "/camera_init";
-    odomAftMapped.child_frame_id = "/aft_mapped";
+    odomAftMapped.header.frame_id = "camera_init";
+    odomAftMapped.child_frame_id = "aft_mapped";
     odomAftMapped.header.stamp = laserOdometry->header.stamp;
     odomAftMapped.pose.pose.orientation.x = q_w_curr.x();
     odomAftMapped.pose.pose.orientation.y = q_w_curr.y();
@@ -628,7 +579,6 @@ void process()
             }
             int laserCloudCornerFromMapNum = laserCloudCornerFromMap->points.size();
 
-
             // 降采样当前帧特征点云（次极大边线点云）
             pcl::PointCloud<PointType>::Ptr laserCloudCornerStack(new pcl::PointCloud<PointType>());
             downSizeFilterCorner.setInputCloud(laserCloudCornerLast);
@@ -809,19 +759,19 @@ void process()
             // centerLast、laserCloudFullRes、laserCloudSurfLast、laserCloudCornerLast
             pcl::toROSMsg(*offGroundFrame, offGround_msg);
             offGround_msg.header.stamp = ros::Time().fromSec(timeLaserOdometry);
-            offGround_msg.header.frame_id = "/camera_init";
+            offGround_msg.header.frame_id = "camera_init";
             pubOffGround.publish(offGround_msg);
 
             sensor_msgs::PointCloud2 ground_msg;
             pcl::toROSMsg(  *groundFrame, ground_msg);
             ground_msg.header.stamp = ros::Time().fromSec(timeLaserOdometry);
-            ground_msg.header.frame_id = "/camera_init";
+            ground_msg.header.frame_id = "camera_init";
             pubGround.publish(ground_msg);
 
             sensor_msgs::PointCloud2 edge_msg;
             pcl::toROSMsg(*laserCloudCornerLast, edge_msg);
             edge_msg.header.stamp = ros::Time().fromSec(timeLaserOdometry);
-            edge_msg.header.frame_id = "/camera_init";
+            edge_msg.header.frame_id = "camera_init";
             pubEdge.publish(edge_msg);
 
 
@@ -829,7 +779,7 @@ void process()
             //printf("whole mapping time %f ms +++++\n", t_whole.toc());
 
             nav_msgs::Odometry odomAftMapped;
-            odomAftMapped.header.frame_id = "/camera_init";
+            odomAftMapped.header.frame_id = "camera_init";
             // odomAftMapped.child_frame_id = "/aft_mapped";
             odomAftMapped.header.stamp = ros::Time().fromSec(timeLaserOdometry);
             odomAftMapped.pose.pose.orientation.x = q_w_curr.x();
@@ -848,7 +798,7 @@ void process()
             laserAfterMappedPose.header = odomAftMapped.header;
             laserAfterMappedPose.pose = odomAftMapped.pose.pose;
             laserAfterMappedPath.header.stamp = odomAftMapped.header.stamp;
-            laserAfterMappedPath.header.frame_id = "/camera_init";
+            laserAfterMappedPath.header.frame_id = "camera_init";
             laserAfterMappedPath.poses.push_back(laserAfterMappedPose);
             pubLaserAfterMappedPath.publish(laserAfterMappedPath);
 
@@ -864,7 +814,7 @@ int main(int argc, char **argv)
 {
     ros::init(argc, argv, "laserMapping");
     ros::NodeHandle nh;
-    os_pose.open("/home/wb/SC_FASTLOAM_WS/wb/pose/poses.txt", std::fstream::out);
+    os_pose.open("/home/roma/a-loam_union_ws/poses.txt", std::fstream::out);
 
     float lineRes = 0;
     float planeRes = 0;
@@ -877,17 +827,17 @@ int main(int argc, char **argv)
     // 全局变量，避免计算量太大，进行下采样，体素滤波
     downSizeFilterCorner.setLeafSize(lineRes, lineRes,lineRes);
     downSizeFilterCenter.setLeafSize(lineRes,lineRes, lineRes);
+
+    //------------------------------输入---------------------------------------------
     // 从laserOdometry节点订阅角点
     ros::Subscriber subLaserCloudCornerLast = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_corner_last", 100, laserCloudCornerLastHandler);
     // 从laserOdometry节点订阅面点
     ros::Subscriber subLaserCloudSurfLast = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_surf_last", 100, laserCloudSurfLastHandler);
     // 从laserOdometry节点订阅到的最新帧的位姿T_cur^w，当前帧的位姿粗估计
     ros::Subscriber subLaserOdometry = nh.subscribe<nav_msgs::Odometry>("/laser_odom_to_init", 100, laserOdometryHandler);
-
     // 订阅质心
-    ros::Subscriber subCenter = nh.subscribe<sensor_msgs::PointCloud2>("/odomLink3d_cloud", 100, centerHandler);
-
-
+    ros::Subscriber subCenter = nh.subscribe<sensor_msgs::PointCloud2>("/center", 100, centerHandler);
+    //------------------------------输出---------------------------------------------
     // submap所在cube中的点云，附近5帧组成的降采样子地图 for rviz
     pubLaserCloudSurround = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_surround", 100);
     // 所欲cube中的点云，所有帧组成的点云地图

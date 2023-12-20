@@ -1,0 +1,40 @@
+<launch>
+    
+    <param name="scan_line" type="int" value="64" />
+
+    <!-- if 1, do mapping 10 Hz, if 2, do mapping 5 Hz. Suggest to use 1, it will adjust frequence automaticlly -->
+    <param name="mapping_skip_frame" type="int" value="1" />
+
+    <!-- remove too closed points -->
+    <param name="minimum_range" type="double" value="5"/>
+
+    <param name="mapping_line_resolution" type="double" value="0.4"/>
+    <param name="mapping_plane_resolution" type="double" value="0.8"/>
+
+<!-- BackEnd_BALM Parameters -->
+    <param name="viewVoxel" type="bool" value="true"/>
+    <param name="ground_filter_length" type="double" value="0.4"/>
+    <param name="corn_filter_length" type="double" value="0.2"/>
+    <param name="root_ground_voxel_size" type="double" value="1"/>
+    <param name="root_corn_voxel_size" type="double" value="1"/>
+    <param name="skip_num" type="int" value="0"/>
+    <param name="ground_feat_eigen_limit" type="double" value="9"/>
+    <param name="corn_feat_eigen_limit" type="double" value="4"/>
+    <param name="ground_opt_feat_eigen_limit" type="double" value="16"/>
+    <param name="corn_opt_feat_eigen_limit" type="double" value="9"/>
+    <param name="pub_skip" type="int" value="1"/>
+    <param name="useEdge" type="bool" value="false"/>
+
+     <!-- <node pkg="aloam_velodyne" type="FrontEnd_Link3D" name="FrontEnd_Link3D" output="screen" />  -->
+     <node pkg="aloam_velodyne" type="FrontEnd" name="FrontEnd" output="screen" /> 
+
+    <node pkg="aloam_velodyne" type="ScanToMap_CSF" name="ScanToMap_CSF" output="screen" /> 
+
+    <node pkg="aloam_velodyne" type="BackEnd_BALM" name="BackEnd_BALM" output="screen" />
+
+    <arg name="rviz" default="true" />
+    <group if="$(arg rviz)">
+        <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find aloam_velodyne)/rviz_cfg/aloam_union.rviz" />
+    </group>
+
+</launch>

@@ -20,18 +20,18 @@ typedef pcl::PointXYZINormal PointType;
 using namespace std;
 int life_span = 1000;
 // Key of hash table 哈希表的键
-class VOXEL_LOC
-{
-public:
-  int64_t x, y, z;
+// class VOXEL_LOC
+// {
+// public:
+//   int64_t x, y, z;
 
-  VOXEL_LOC(int64_t vx=0, int64_t vy=0, int64_t vz=0): x(vx), y(vy), z(vz){}
+//   VOXEL_LOC(int64_t vx=0, int64_t vy=0, int64_t vz=0): x(vx), y(vy), z(vz){}
 
-  bool operator== (const VOXEL_LOC &other) const
-  {
-    return (x==other.x && y==other.y && z==other.z);
-  }
-};
+//   bool operator== (const VOXEL_LOC &other) const
+//   {
+//     return (x==other.x && y==other.y && z==other.z);
+//   }
+// };
 /*
 这是一个哈希函数的表达式，它将结构体 s 中的三个整数字段 x、y 和 z 进行哈希计算并进行位运算。
 具体来说，它使用了三次哈希函数 hash<int64_t>() 对 x、y 和 z 进行哈希计算，然后通过位运算进行混合。
@@ -40,18 +40,18 @@ public:
 */
 
 // Hash value 哈希值
-namespace std
-{
-  template<>
-  struct hash<VOXEL_LOC>
-  {
-    size_t operator() (const VOXEL_LOC &s) const
-    {
-      using std::size_t; using std::hash;
-      return ((hash<int64_t>()(s.x) ^ (hash<int64_t>()(s.y) << 1)) >> 1) ^ (hash<int64_t>()(s.z) << 1);
-    }
-  };
-}
+// namespace std
+// {
+//   template<>
+//   struct hash<VOXEL_LOC>
+//   {
+//     size_t operator() (const VOXEL_LOC &s) const
+//     {
+//       using std::size_t; using std::hash;
+//       return ((hash<int64_t>()(s.x) ^ (hash<int64_t>()(s.y) << 1)) >> 1) ^ (hash<int64_t>()(s.z) << 1);
+//     }
+//   };
+// }
 
 struct M_POINT
 {
