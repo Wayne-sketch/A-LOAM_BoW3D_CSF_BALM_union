@@ -49,12 +49,12 @@ catkin_package(
 
 # target_link_libraries(FrontEnd_Link3D ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ${OpenCV_LIBS})
 
-add_executable(FrontEnd_Link3D_ctx src/FrontEnd_Link3D_ctx.cpp)
+add_executable(FrontEnd src/FrontEnd.cpp)
 
-target_link_libraries(FrontEnd_Link3D_ctx ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ${OpenCV_LIBS})
+target_link_libraries(FrontEnd ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ${OpenCV_LIBS})
 
-add_executable(ScanToMap_CSF_ctx
-		src/ScanToMap_CSF_ctx.cpp
+add_executable(ScanToMap_CSF
+		src/ScanToMap_CSF.cpp
 		# include/utility/Scancontext.cpp
 		# include/utility/VoxelGridLargeScale.cpp
 		include/CSF/c2cdist.cpp
@@ -65,10 +65,10 @@ add_executable(ScanToMap_CSF_ctx
 		include/CSF/Rasterization.cpp
 		include/CSF/XYZReader.cpp
 		include/CSF/CSF.cpp)
-target_link_libraries(ScanToMap_CSF_ctx ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES})
+target_link_libraries(ScanToMap_CSF ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES})
 
-add_executable(BackEnd_BALM_ctx src/BackEnd_BALM_ctx.cpp include/utility/myso3.cpp)
-target_link_libraries(BackEnd_BALM_ctx ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
+add_executable(BackEnd_BALM src/BackEnd_BALM.cpp include/utility/myso3.cpp)
+target_link_libraries(BackEnd_BALM ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
 
 # add_executable(alaserPGO
 # 		src/LoopOptimization.cpp

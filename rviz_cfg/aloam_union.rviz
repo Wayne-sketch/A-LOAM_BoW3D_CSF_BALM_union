@@ -6,7 +6,9 @@ Panels:
       Expanded:
         - /Global Options1
         - /Status1
+        - /FrontEnd1
         - /FrontEnd1/FrontEndcorner_last1
+        - /Scan2Map1
         - /BALM_BackEnd1
       Splitter Ratio: 0.5032573342323303
     Tree Height: 725
@@ -27,7 +29,7 @@ Panels:
   - Class: rviz/Time
     Name: Time
     SyncMode: 0
-    SyncSource: ground_BA
+    SyncSource: mapcute
 Preferences:
   PromptSaveOnExit: true
 Toolbars:
@@ -458,19 +460,19 @@ Visualization Manager:
           Decay Time: 0
           Enabled: false
           Invert Rainbow: false
-          Max Color: 255; 255; 255
-          Min Color: 0; 0; 0
+          Max Color: 0; 0; 255
+          Min Color: 0; 0; 255
           Name: corner_BA
           Position Transformer: XYZ
           Queue Size: 10
           Selectable: true
-          Size (Pixels): 3
+          Size (Pixels): 2
           Size (m): 0.009999999776482582
           Style: Points
           Topic: /Edge_BA
           Unreliable: false
           Use Fixed Frame: true
-          Use rainbow: true
+          Use rainbow: false
           Value: false
         - Alpha: 1
           Autocompute Intensity Bounds: true
@@ -486,19 +488,19 @@ Visualization Manager:
           Decay Time: 0
           Enabled: false
           Invert Rainbow: false
-          Max Color: 255; 255; 255
-          Min Color: 0; 0; 0
+          Max Color: 0; 255; 0
+          Min Color: 0; 255; 0
           Name: offground_BA
           Position Transformer: XYZ
           Queue Size: 10
           Selectable: true
-          Size (Pixels): 3
+          Size (Pixels): 1
           Size (m): 0.009999999776482582
           Style: Points
           Topic: /offground_BA
           Unreliable: false
           Use Fixed Frame: true
-          Use rainbow: true
+          Use rainbow: false
           Value: false
         - Alpha: 1
           Autocompute Intensity Bounds: true
@@ -512,24 +514,80 @@ Visualization Manager:
           Color: 255; 255; 255
           Color Transformer: Intensity
           Decay Time: 0
-          Enabled: true
+          Enabled: false
           Invert Rainbow: false
-          Max Color: 255; 255; 255
-          Min Color: 0; 0; 0
+          Max Color: 255; 0; 0
+          Min Color: 255; 0; 0
           Name: ground_BA
           Position Transformer: XYZ
           Queue Size: 10
           Selectable: true
-          Size (Pixels): 3
+          Size (Pixels): 2
           Size (m): 0.009999999776482582
           Style: Points
           Topic: /ground_BA
           Unreliable: false
           Use Fixed Frame: true
-          Use rainbow: true
-          Value: true
+          Use rainbow: false
+          Value: false
       Enabled: true
       Name: BALM_BackEnd
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud2
+      Color: 255; 255; 255
+      Color Transformer: Intensity
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Min Color: 0; 0; 0
+      Name: mapcute
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 2
+      Size (m): 0.009999999776482582
+      Style: Points
+      Topic: /map_cute
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud2
+      Color: 255; 255; 255
+      Color Transformer: Intensity
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Min Color: 0; 0; 0
+      Name: mapfull
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 2
+      Size (m): 0.009999999776482582
+      Style: Points
+      Topic: /map_full
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 0; 0; 0
@@ -558,7 +616,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/XYOrbit
-      Distance: 26.046764373779297
+      Distance: 159.79298400878906
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -566,17 +624,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: -7.373584747314453
-        Y: 5.938353538513184
-        Z: -2.3097243309020996
+        X: 132.3848114013672
+        Y: 44.12921142578125
+        Z: -2.3097081184387207
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.11479555815458298
+      Pitch: 0.6747943162918091
       Target Frame: body
-      Yaw: 2.1149954795837402
+      Yaw: 1.0599981546401978
     Saved: ~
 Window Geometry:
   Displays:
@@ -594,5 +652,5 @@ Window Geometry:
   Views:
     collapsed: true
   Width: 1866
-  X: 274
-  Y: 63
+  X: 140
+  Y: 93

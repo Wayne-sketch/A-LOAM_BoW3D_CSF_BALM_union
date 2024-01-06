@@ -1075,7 +1075,7 @@ void process()
 			csf.do_filtering(groundIndexes, offGroundIndexes);
 			pcl::copyPointCloud(*laserCloudSurfLast, groundIndexes, *groundFrame);
 			pcl::copyPointCloud(*laserCloudSurfLast, offGroundIndexes, *offGroundFrame);
-			printf("csf time %f ms\n", t_csf.toc());
+			// printf("csf time %f ms\n", t_csf.toc());
 
 			//todo 提取出的地面点存下来 发布出去 发布前转换一下坐标
 			TicToc t_pub_csf;

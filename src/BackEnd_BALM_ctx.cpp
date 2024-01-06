@@ -122,14 +122,24 @@ void cut_voxel(unordered_map<VOXEL_LOC, OCTO_TREE*> &feat_map, pcl::PointCloud<P
     }
 }
 
+/**
+ * @brief 
+ * 
+ * @param feat_map 哈希表 八叉树地图
+ * @param pl_feat 要被边缘化出去的帧的点云
+ * @param x_key 优化后的位姿
+ * @param fnum 要被边缘化出去的帧在滑窗中的索引
+ */
 void cut_voxel2(unordered_map<VOXEL_LOC, OCTO_TREE*> &feat_map, pcl::PointCloud<PointType> &pl_feat, const IMUST &x_key, int fnum)
 {
     float loc_xyz[3];
     for(PointType &p_c : pl_feat.points)
     {
         Eigen::Vector3d pvec_orig(p_c.x, p_c.y, p_c.z);
+        //用优化后的位姿计算世界系下的点坐标
         Eigen::Vector3d pvec_tran = x_key.R*pvec_orig + x_key.p;
 
+        //计算体素位置索引
         for(int j=0; j<3; j++)
         {
             loc_xyz[j] = pvec_tran[j] / voxel_size[0];
@@ -152,7 +162,9 @@ void cut_voxel2(unordered_map<VOXEL_LOC, OCTO_TREE*> &feat_map, pcl::PointCloud<
                 iter->second->sig_tran[fnum].push(pvec_tran);
             }
             iter->second->is2opt = true;
+            //?好像没啥意义 想表示继续分割吗
             iter->second->life = life_span;
+            //记录体素中点数
             iter->second->each_num[fnum]++;
         }
         else
@@ -160,8 +172,10 @@ void cut_voxel2(unordered_map<VOXEL_LOC, OCTO_TREE*> &feat_map, pcl::PointCloud<
             OCTO_TREE *ot = new OCTO_TREE();
             ot->vec_orig[fnum].push_back(pvec_orig);
             ot->vec_tran[fnum].push_back(pvec_tran);
+            //todo ?
             ot->sig_orig[fnum].push(pvec_orig);
             ot->sig_tran[fnum].push(pvec_tran);
+            //记录体素点数
             ot->each_num[fnum]++;
 
             ot->voxel_center[0] = (0.5+position.x) * voxel_size[0];
@@ -171,9 +185,7 @@ void cut_voxel2(unordered_map<VOXEL_LOC, OCTO_TREE*> &feat_map, pcl::PointCloud<
             ot->layer = 0;
             feat_map[position] = ot;
         }
-
     }
-
 }
 
 
@@ -229,6 +241,7 @@ int main(int argc, char **argv)
 
     int jump_flag = skip_num;
     printf("%d\n", skip_num);
+    //抄BALM back_only_back.cpp代码
     LM_SLWD_VOXEL opt_lsv(window_size, filter_num, thread_num);
 
     pcl::PointCloud<PointType>::Ptr pl_corn(new pcl::PointCloud<PointType>);
@@ -296,6 +309,7 @@ int main(int argc, char **argv)
 
         //pcl::io::savePCDFileBinary("/home/wb/FALOAMBA_WS/wb/Map/map.pcd", *pl_ground);
 
+        //pl_ground还有用，所以这里复制出一个新点云
         *pl_ground_temp = *pl_ground;
         *pl_edge_temp = *pl_corn;
         *pl_offground_temp = *pl_offground;
@@ -363,7 +377,9 @@ int main(int argc, char **argv)
         laser_odom.pose.pose.position.x = apose.position.x;
         laser_odom.pose.pose.position.y = apose.position.y;
         laser_odom.pose.pose.position.z = apose.position.z;
+        //发布优化前的位姿
         pub_odom.publish(laser_odom);
+        //发布坐标关系
         static tf::TransformBroadcaster br;
         tf::Transform transform;
         tf::Quaternion q;
@@ -378,6 +394,7 @@ int main(int argc, char **argv)
 
         // 发布优化前的位姿
         pub_pose.publish(parray);
+
         pl_ground_buf.push_back(pl_ground_temp);
         pl_edge_buf.push_back(pl_edge_temp);
         pl_offground_buf.push_back(pl_offground_temp);
@@ -399,7 +416,6 @@ int main(int argc, char **argv)
         // 地图由哈希表和八叉树构成，哈希表管理最上层的地图结构，八叉树每个节点中存放一个平面，如果一个节点中的点不能被表示为一个特征，拆分(recut)这个节点
         cut_voxel(ground_map, pl_ground, q_poses[plcount-1].matrix(), t_poses[plcount-1], 0, frame_head, window_size);
         //后续地图的点被送到对应的节点中，在面特征稳定后删除旧的观测，只保留最新观测，如果新的观测和旧的观测冲突，删去旧估计重写估计位姿。
-
         if(useEdge)
         {
             cut_voxel(corn_map, pl_corn, q_poses[plcount-1].matrix(), t_poses[plcount-1], 1, frame_head, window_size);
@@ -448,7 +464,7 @@ int main(int argc, char **argv)
         {
             for(int i=0; i<window_size; i++)
             {
-                // 设置初始值
+                //todo 设置初始值
                 opt_lsv.so3_poses[i].setQuaternion(q_poses[window_base + i]);
                 opt_lsv.t_poses[i] = t_poses[window_base + i];
             }
@@ -481,6 +497,7 @@ int main(int argc, char **argv)
                     }
                 }
                 // Begin iterative optimization
+                //进行优化
                 opt_lsv.damping_iter();
             }
 
@@ -488,7 +505,7 @@ int main(int argc, char **argv)
             // 发布边缘化出去的帧
             for(int i=0; i<margi_size; i+=pub_skip)
             {
-                // 优化后的位姿
+                //todo 优化后的位姿
                 trans.block<3, 3>(0, 0) = opt_lsv.so3_poses[i].matrix();
                 trans.block<3, 1>(0, 3) = opt_lsv.t_poses[i];
 
@@ -501,6 +518,7 @@ int main(int argc, char **argv)
                     T.R = trans.block<3, 3>(0, 0);
                     T.p = trans.block<3, 1>(0, 3);
 
+                    //todo
                     cut_voxel2(ground_map2, *pl_ground_buf[window_base + i], T, i);
                 }
                 else
@@ -511,6 +529,7 @@ int main(int argc, char **argv)
                 // margi_size帧组成的局部地图
                 pl_send += pcloud;
                 // cout << "opt_lsv.t_poses = " << opt_lsv.t_poses[i] << endl;
+                //todo 优化后的位姿
                 Eigen::Quaterniond q_w_curr(opt_lsv.so3_poses[i].matrix());
                 nav_msgs::Odometry odomAftMapped;
                 odomAftMapped.header.frame_id = "camera_init";
@@ -531,6 +550,7 @@ int main(int argc, char **argv)
                 ground_msg.header.stamp = time;
                 ground_msg.header.frame_id = "camera_init";
                 pubground.publish(ground_msg);
+                //清除被边缘化出去的帧的点云
                 pl_ground_buf[window_base + i]->clear();
 
                 sensor_msgs::PointCloud2 edge_msg;
@@ -567,11 +587,13 @@ int main(int argc, char **argv)
 
             for(int i=0; i<margi_size; i++)
             {
+                //清除被边缘化出去的帧的点云指针
                 pl_ground_buf[window_base + i] = nullptr;
                 pl_edge_buf[window_base + i] = nullptr;
                 pl_offground_buf[window_base + i] = nullptr;
             }
 
+            //更新滑窗中的关键帧位姿
             for(int i=0; i<window_size; i++)
             {
                 q_poses[window_base + i] = opt_lsv.so3_poses[i].unit_quaternion();
@@ -604,6 +626,7 @@ int main(int argc, char **argv)
 
             // cout << "parray.poses.size() = " << parray.poses.size() << endl;
             // Marginalization and update voxel map
+            //边缘化
             for(auto iter=ground_map.begin(); iter!=ground_map.end(); ++iter)
             {
                 if(iter->second->is2opt)

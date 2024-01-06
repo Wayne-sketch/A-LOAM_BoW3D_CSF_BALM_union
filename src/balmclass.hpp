@@ -192,7 +192,7 @@ void pub_func(T &pl, ros::Publisher &pub, const ros::Time &current_time)
   pl.height = 1; pl.width = pl.size();
   sensor_msgs::PointCloud2 output;
   pcl::toROSMsg(pl, output);
-  output.header.frame_id = "/camera_init";
+  output.header.frame_id = "camera_init";
   output.header.stamp = current_time;
   pub.publish(output);
 }
@@ -754,6 +754,7 @@ public:
   PointCluster fix_point;
   Eigen::Vector3d center, direct, value_vector; // temporal
   int layer;
+  //?
   int life;
   vector<int> each_num;
 
@@ -771,6 +772,7 @@ public:
   int capacity;
   pcl::PointCloud<PointType> root_centors;
   double decision, ref;
+  //二维容器
   vector<PLV(3)> vec_orig, vec_tran;
   OCTO_TREE()// 默认构造函数
   {
